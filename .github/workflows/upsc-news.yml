@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
 
 jobs:
-  test-gemini:
+  fetch-and-analyze:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Test Gemini API
+      - name: Fetch news and analyze with Gemini
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
@@ -16,7 +16,120 @@ jobs:
           import os
           import json
           import urllib.request
-          import urllib.error
+          import urllib.parse
+          import xml.etree.ElementTree as ET
+
+          # -----------------------------
+          # 1. NEWS SOURCES
+          # -----------------------------
+
+          queries = [
+              "India government policy",
+              "India economy RBI",
+              "Supreme Court India",
+              "India environment climate",
+              "India international relations"
+          ]
+
+          articles = []
+
+          for query in queries:
+              encoded = urllib.parse.quote(query)
+
+              url = (
+                  "https://news.google.com/rss/search?"
+                  f"q={encoded}&hl=en-IN&gl=IN&ceid=IN:en"
+              )
+
+              try:
+                  with urllib.request.urlopen(url, timeout=20) as response:
+                      xml_data = response.read()
+
+                  root = ET.fromstring(xml_data)
+
+                  for item in root.findall(".//item")[:5]:
+                      title = item.findtext("title", "")
+                      link = item.findtext("link", "")
+                      description = item.findtext("description", "")
+
+                      articles.append({
+                          "title": title,
+                          "link": link,
+                          "description": description
+                      })
+
+              except Exception as e:
+                  print(f"Could not fetch {query}: {e}")
+
+          # Remove duplicates
+          unique = {}
+          for article in articles:
+              unique[article["title"]] = article
+
+          articles = list(unique.values())
+
+          print(f"Collected {len(articles)} articles.")
+
+          # -----------------------------
+          # 2. SEND NEWS TO GEMINI
+          # -----------------------------
+
+          news_text = ""
+
+          for i, article in enumerate(articles[:20], 1):
+              news_text += f"""
+          ARTICLE {i}
+          Title: {article['title']}
+          Description: {article['description']}
+          Link: {article['link']}
+          -------------------------
+          """
+
+          prompt = f"""
+          You are an expert UPSC Civil Services current affairs analyst.
+
+          Analyze the following news articles.
+
+          Select ONLY genuinely important topics for UPSC preparation.
+
+          Ignore:
+          - entertainment
+          - sports
+          - celebrity news
+          - routine political statements
+          - trivial local events
+          - promotional content
+
+          Prioritize:
+          - Polity
+          - Governance
+          - Economy
+          - Environment
+          - Science and Technology
+          - International Relations
+          - Internal Security
+          - Social Issues
+          - Government schemes
+          - Supreme Court / constitutional developments
+          - Important reports and indices
+
+          For each selected article provide:
+
+          1. Title
+          2. Category
+          3. UPSC relevance score from 1-100
+          4. What happened
+          5. Why it matters for UPSC
+          6. GS paper
+          7. 3 Prelims facts
+          8. One possible Mains question
+          9. Source link
+
+          Be concise and fact-focused.
+
+          NEWS:
+          {news_text}
+          """
 
           api_key = os.environ["GEMINI_API_KEY"]
 
@@ -30,7 +143,7 @@ jobs:
                   {
                       "parts": [
                           {
-                              "text": "Say hello to the UPSC AI News Agent in one sentence."
+                              "text": prompt
                           }
                       ]
                   }
@@ -47,15 +160,13 @@ jobs:
               method="POST"
           )
 
-          try:
-              with urllib.request.urlopen(request) as response:
-                  result = json.loads(response.read().decode("utf-8"))
+          with urllib.request.urlopen(request, timeout=120) as response:
+              result = json.loads(response.read().decode("utf-8"))
 
-              print("Gemini response:")
-              print(result["candidates"][0]["content"]["parts"][0]["text"])
+          answer = result["candidates"][0]["content"]["parts"][0]["text"]
 
-          except urllib.error.HTTPError as e:
-              print(f"Gemini API returned HTTP {e.code}")
-              print(e.read().decode("utf-8"))
-              raise
+          print("\n==============================")
+          print("UPSC DAILY CURRENT AFFAIRS")
+          print("==============================\n")
+          print(answer)
           PY
