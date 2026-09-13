@@ -8,8 +8,7 @@ import xml.etree.ElementTree as ET
 import smtplib
 import html
 
-from datetime import datetime
-
+from datetime import datetime, timezone, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
@@ -68,11 +67,21 @@ for query in queries:
                 ""
             )
 
-            articles.append({
-                "title": title,
-                "link": link,
-                "description": description
-            })
+            source_element = item.find("source")
+
+            if source_element is not None:
+                source_name = source_element.text or ""
+            else:
+                source_name = ""
+
+            articles.append(
+                {
+                    "title": title,
+                    "link": link,
+                    "description": description,
+                    "source": source_name
+                }
+            )
 
     except Exception as e:
 
@@ -127,18 +136,11 @@ for i, article in enumerate(
 ):
 
     news_text += (
-
         f"\nARTICLE {i}\n"
-
-        f"TITLE: "
-        f"{article['title']}\n"
-
-        f"DESCRIPTION: "
-        f"{article['description']}\n"
-
-        f"SOURCE LINK: "
-        f"{article['link']}\n"
-
+        f"TITLE: {article['title']}\n"
+        f"SOURCE NAME: {article['source']}\n"
+        f"DESCRIPTION: {article['description']}\n"
+        f"SOURCE URL: {article['link']}\n"
         f"--------------------------------------------------\n"
     )
 
@@ -154,46 +156,48 @@ current-affairs analyst.
 Create a concise, accurate daily UPSC current-affairs
 briefing from the supplied news articles.
 
-IMPORTANT ACCURACY RULES:
+============================================================
+IMPORTANT ACCURACY RULES
+============================================================
 
 1. Do not invent facts.
 
 2. Do not claim that a government action, Supreme Court
-   order, RBI decision, policy, scheme, statistic or
-   international event happened unless the supplied
-   article supports it.
+order, RBI decision, policy, scheme, statistic or
+international event happened unless the supplied article
+supports it.
 
 3. Do not create statistics, dates, laws, schemes,
-   organizations or statements that are not supported
-   by the supplied material.
+organizations or statements that are not supported by
+the supplied material.
 
 4. If an important fact cannot be established from the
-   supplied material, write:
-
-   "Requires verification."
+supplied material, write:
+"Requires verification."
 
 5. Do not confuse an article's opinion or criticism with
-   an established government decision.
+an established government decision.
 
 6. Do not present speculation as fact.
 
-7. Keep the briefing useful for UPSC preparation rather
-   than general news reading.
+7. Do not manufacture information just to fill a section.
 
-8. Never invent a source URL.
+8. Use the supplied source URL exactly.
 
-9. Use only URLs supplied in the NEWS ARTICLES section.
+9. Do not change, shorten or invent source URLs.
 
-10. When providing Source URL, copy the exact SOURCE LINK
-    from the supplied article.
+10. Prefer primary/official sources when the supplied
+article clearly identifies one.
 
-11. Do not modify, shorten, rewrite, or replace the URL.
+11. If the supplied article is from a news organization,
+do not pretend that it is an official government source.
 
-12. Do not use a homepage URL instead of the article URL.
+12. Make the content useful for UPSC preparation rather
+than general news reading.
 
-13. Do not use Markdown links for Source URL.
-
-PRIORITIZE:
+============================================================
+PRIORITIZE
+============================================================
 
 - Indian Polity
 - Constitution
@@ -212,7 +216,9 @@ PRIORITIZE:
 - Social Issues
 - Important reports and indices
 
-IGNORE:
+============================================================
+IGNORE
+============================================================
 
 - Sports
 - Entertainment
@@ -222,13 +228,23 @@ IGNORE:
 - Trivial local news
 - Sensational stories with little UPSC relevance
 
-SELECT:
+============================================================
+NUMBER OF TOPICS
+============================================================
 
 Select approximately 5-8 genuinely important UPSC topics.
 
+Do not select a topic merely because it is available.
+
+Prioritize quality and UPSC relevance.
+
+============================================================
+EXACT OUTPUT FORMAT
+============================================================
+
 For every selected topic use EXACTLY this structure:
 
-### TOPIC: <title>
+### TOPIC: <clear topic title>
 
 **Category:** <category>
 
@@ -238,13 +254,14 @@ For every selected topic use EXACTLY this structure:
 Explain in 2-4 concise sentences.
 
 **Quick Summary:**
-Provide exactly 3 short bullet points.
-Each bullet should summarize one important takeaway
-from this topic in simple language.
+- <short key takeaway>
+- <short key takeaway>
+- <short key takeaway>
 
-- Short point 1
-- Short point 2
-- Short point 3
+Each Quick Summary bullet must be approximately
+8-18 words.
+
+Do not make the three bullets repetitive.
 
 **Why It Matters for UPSC:**
 Explain in 2-4 concise sentences.
@@ -257,35 +274,27 @@ GS-1, GS-2, GS-3, GS-4 or Essay.
 2. Useful fact.
 3. Useful fact.
 
+Exactly 3 facts.
+
+Do NOT add a fourth numbered item.
+
 **Mains Angle:**
-One analytical UPSC-style Mains question.
+Write one analytical UPSC-style Mains question.
 
 **Source:**
 Article title - source name.
 
 **Source URL:**
-EXACT SOURCE LINK copied from the supplied article data.
+EXACT SOURCE URL copied from the supplied article data.
 
-IMPORTANT SOURCE RULES:
+IMPORTANT:
+Keep Source and Source URL as separate labelled lines.
 
-- Source URL must be one of the exact SOURCE LINK URLs
-  supplied in the NEWS ARTICLES section.
-- Never create a new URL.
-- Never shorten the URL.
-- Never replace it with the publication homepage.
-- Never use a fake URL.
-- Output the URL as plain text.
+Do not write the article title again on a separate line.
 
-IMPORTANT QUICK SUMMARY RULES:
-
-- Exactly 3 bullets per topic.
-- Keep each bullet short.
-- Prefer approximately 8-18 words per bullet.
-- Do not repeat the entire What Happened section.
-- Focus on the most important UPSC takeaway.
-- Use simple language.
-
-Do NOT add a fourth numbered item under Prelims Facts.
+============================================================
+TOP 5 QUICK REVISION
+============================================================
 
 At the end provide:
 
@@ -297,9 +306,15 @@ At the end provide:
 4. ...
 5. ...
 
+Exactly 5 points.
+
+============================================================
+PRELIMS MCQs
+============================================================
+
 Then provide:
 
-### PRELIMS MCQs
+### PRELIMS MCQS
 
 Create exactly 3 MCQs.
 
@@ -307,14 +322,11 @@ Each MCQ must contain:
 
 #### MCQ 1
 
-Question
+**Question:** <question>
 
 A) ...
-
 B) ...
-
 C) ...
-
 D) ...
 
 **Correct Answer:** X
@@ -323,14 +335,26 @@ D) ...
 
 Then MCQ 2 and MCQ 3.
 
+Make the MCQs based primarily on the supplied current-affairs
+material and UPSC-relevant concepts.
+
+============================================================
+MAINS PRACTICE QUESTION
+============================================================
+
 Finally provide:
 
 ### MAINS PRACTICE QUESTION
 
-One UPSC-style analytical question of approximately
-150-250 words.
+One UPSC-style analytical question suitable for Mains.
 
-NEWS ARTICLES:
+Do NOT write a 150-250 word answer.
+
+Write only the question.
+
+============================================================
+NEWS ARTICLES
+============================================================
 
 {news_text}
 """
@@ -340,9 +364,7 @@ NEWS ARTICLES:
 # 5. CALL GEMINI
 # ============================================================
 
-api_key = os.environ[
-    "GEMINI_API_KEY"
-]
+api_key = os.environ["GEMINI_API_KEY"]
 
 
 gemini_url = (
@@ -395,8 +417,11 @@ try:
     ) as response:
 
         result = json.loads(
-            response.read().decode("utf-8")
+            response.read().decode(
+                "utf-8"
+            )
         )
+
 
 except urllib.error.HTTPError as e:
 
@@ -405,7 +430,9 @@ except urllib.error.HTTPError as e:
     )
 
     print(
-        e.read().decode("utf-8")
+        e.read().decode(
+            "utf-8"
+        )
     )
 
     raise
@@ -450,53 +477,60 @@ print(
     "====================================\n"
 )
 
-print(briefing)
+print(
+    briefing
+)
 
 
 # ============================================================
-# 7. HTML FORMATTING HELPERS
+# 7. DATE — INDIA TIME
 # ============================================================
 
-today = datetime.now().strftime(
+IST = timezone(
+    timedelta(
+        hours=5,
+        minutes=30
+    )
+)
+
+
+today = datetime.now(
+    IST
+).strftime(
     "%d %B %Y"
 )
 
 
-def clean_text(text):
+# ============================================================
+# 8. HTML FORMATTING HELPERS
+# ============================================================
 
-    """
-    Convert basic Markdown into safe HTML.
-    """
+def clean_text(text):
 
     text = text.strip()
 
-    # Remove markdown bullets
     text = re.sub(
         r"^\s*[-*]\s+",
         "",
         text
     )
 
-    # Escape HTML
     text = html.escape(
         text
     )
 
-    # Bold
     text = re.sub(
         r"\*\*(.*?)\*\*",
         r"<strong>\1</strong>",
         text
     )
 
-    # Italic
     text = re.sub(
         r"(?<!\*)\*(?!\s)(.*?)(?<!\s)\*",
         r"<em>\1</em>",
         text
     )
 
-    # Remove remaining stars
     text = text.replace(
         "*",
         ""
@@ -507,10 +541,6 @@ def clean_text(text):
 
 def extract_link(text):
 
-    """
-    Extract a URL from Markdown or plain text.
-    """
-
     match = re.search(
         r"https?://[^\s)\]>]+",
         text
@@ -518,7 +548,9 @@ def extract_link(text):
 
     if match:
 
-        return match.group(0).rstrip(
+        return match.group(
+            0
+        ).rstrip(
             ".,;:!?\"'"
         )
 
@@ -526,16 +558,6 @@ def extract_link(text):
 
 
 def remove_markdown_link(text):
-
-    """
-    Convert:
-
-    [Source](URL)
-
-    into:
-
-    Source
-    """
 
     text = re.sub(
         r"\[([^\]]+)\]\([^)]+\)",
@@ -546,67 +568,167 @@ def remove_markdown_link(text):
     return text
 
 
+def normalize_source_text(text):
+
+    text = remove_markdown_link(
+        text
+    )
+
+    text = re.sub(
+        r"https?://[^\s]+",
+        "",
+        text
+    )
+
+    text = text.strip()
+
+    return text
+
+
 # ============================================================
-# 8. BUILD BEAUTIFUL HTML
+# 9. BUILD BEAUTIFUL HTML
 # ============================================================
 
 def build_html(briefing):
 
-    lines = briefing.replace(
-        "\r",
-        ""
-    ).split("\n")
+    lines = (
+        briefing
+        .replace("\r", "")
+        .split("\n")
+    )
 
     output = []
 
     current_topic_open = False
-
     current_special_open = False
 
-    in_numbered_list = False
-
-    in_summary_list = False
+    list_type = None
 
     current_source_name = ""
-
     current_source_url = ""
 
+    pending_source_name = False
+    pending_source_url = False
 
-    def close_numbered_list():
 
-        nonlocal in_numbered_list
+    # --------------------------------------------------------
+    # CLOSE NUMBERED LIST
+    # --------------------------------------------------------
 
-        if in_numbered_list:
+    def close_list():
+
+        nonlocal list_type
+
+        if list_type == "facts":
 
             output.append(
                 "</ol>"
             )
 
-            in_numbered_list = False
-
-
-    def close_summary_list():
-
-        nonlocal in_summary_list
-
-        if in_summary_list:
+        elif list_type == "summary":
 
             output.append(
                 "</ul>"
             )
 
-            in_summary_list = False
+        elif list_type == "revision":
 
+            output.append(
+                "</ol>"
+            )
+
+        list_type = None
+
+
+    # --------------------------------------------------------
+    # CLOSE SOURCE BOX
+    # --------------------------------------------------------
+
+    def close_source_box():
+
+        nonlocal current_source_name
+        nonlocal current_source_url
+        nonlocal pending_source_name
+        nonlocal pending_source_url
+
+        if (
+            current_source_name
+            or current_source_url
+        ):
+
+            source_name = (
+                current_source_name
+                or "Source article"
+            )
+
+            if current_source_url:
+
+                output.append(
+                    f"""
+                    <div class="source-box">
+
+                        <div class="source-label">
+                            🔗 Source
+                        </div>
+
+                        <div class="source-name">
+                            {clean_text(source_name)}
+                        </div>
+
+                        <a
+                            class="source-button"
+                            href="{html.escape(current_source_url, quote=True)}"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                        >
+                            Read Source →
+                        </a>
+
+                    </div>
+                    """
+                )
+
+            else:
+
+                output.append(
+                    f"""
+                    <div class="source-box">
+
+                        <div class="source-label">
+                            🔗 Source
+                        </div>
+
+                        <div class="source-name">
+                            {clean_text(source_name)}
+                        </div>
+
+                    </div>
+                    """
+                )
+
+        current_source_name = ""
+        current_source_url = ""
+
+        pending_source_name = False
+        pending_source_url = False
+
+
+    # --------------------------------------------------------
+    # CLOSE TOPIC
+    # --------------------------------------------------------
 
     def close_topic():
 
         nonlocal current_topic_open
 
-        close_numbered_list()
-
-        close_summary_list()
+        close_list()
+        close_source_box()
 
         if current_topic_open:
+
+            output.append(
+                "</div>"
+            )
 
             output.append(
                 "</div>"
@@ -615,15 +737,21 @@ def build_html(briefing):
             current_topic_open = False
 
 
+    # --------------------------------------------------------
+    # CLOSE SPECIAL
+    # --------------------------------------------------------
+
     def close_special():
 
         nonlocal current_special_open
 
-        close_numbered_list()
-
-        close_summary_list()
+        close_list()
 
         if current_special_open:
+
+            output.append(
+                "</div>"
+            )
 
             output.append(
                 "</div>"
@@ -632,83 +760,9 @@ def build_html(briefing):
             current_special_open = False
 
 
-    def add_source_box():
-
-        nonlocal current_source_name
-
-        nonlocal current_source_url
-
-        if (
-            not current_source_name
-            and
-            not current_source_url
-        ):
-
-            return
-
-
-        clean_source = remove_markdown_link(
-            current_source_name
-        )
-
-
-        clean_source = re.sub(
-            r"https?://[^\s]+",
-            "",
-            clean_source
-        ).strip()
-
-
-        if current_source_url:
-
-            output.append(
-                f"""
-                <div class="source-box">
-
-                    <div class="source-label">
-                        🔗 Source
-                    </div>
-
-                    <div class="source-name">
-                        {clean_text(clean_source)}
-                    </div>
-
-                    <a
-                        class="source-button"
-                        href="{html.escape(current_source_url, quote=True)}"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                    >
-                        Read Source →
-                    </a>
-
-                </div>
-                """
-            )
-
-        else:
-
-            output.append(
-                f"""
-                <div class="source-box">
-
-                    <div class="source-label">
-                        🔗 Source
-                    </div>
-
-                    <div class="source-name">
-                        {clean_text(clean_source)}
-                    </div>
-
-                </div>
-                """
-            )
-
-
-        current_source_name = ""
-
-        current_source_url = ""
-
+    # ========================================================
+    # PROCESS LINES
+    # ========================================================
 
     for raw_line in lines:
 
@@ -721,11 +775,92 @@ def build_html(briefing):
 
         if not line:
 
-            close_numbered_list()
-
-            close_summary_list()
+            close_list()
 
             continue
+
+
+        # ----------------------------------------------------
+        # PENDING SOURCE NAME
+        # ----------------------------------------------------
+
+        if pending_source_name:
+
+            if re.search(
+                r"\*\*Source URL:\*\*",
+                line,
+                re.IGNORECASE
+            ):
+
+                pending_source_name = False
+                pending_source_url = True
+
+                url_match = re.search(
+                    r"\*\*Source URL:\*\*\s*(.*)",
+                    line,
+                    re.IGNORECASE
+                )
+
+                if url_match:
+
+                    value = url_match.group(
+                        1
+                    ).strip()
+
+                    url = extract_link(
+                        value
+                    )
+
+                    if url:
+
+                        current_source_url = url
+
+                        close_source_box()
+
+                continue
+
+
+            if extract_link(line):
+
+                current_source_url = (
+                    extract_link(line)
+                )
+
+                pending_source_name = False
+
+                close_source_box()
+
+                continue
+
+
+            current_source_name = (
+                normalize_source_text(line)
+            )
+
+            pending_source_name = False
+
+            continue
+
+
+        # ----------------------------------------------------
+        # PENDING SOURCE URL
+        # ----------------------------------------------------
+
+        if pending_source_url:
+
+            url = extract_link(
+                line
+            )
+
+            if url:
+
+                current_source_url = url
+
+                pending_source_url = False
+
+                close_source_box()
+
+                continue
 
 
         # ----------------------------------------------------
@@ -738,22 +873,14 @@ def build_html(briefing):
             re.IGNORECASE
         )
 
-
         if topic_match:
 
-            add_source_box()
-
-            close_numbered_list()
-
-            close_summary_list()
-
             close_special()
-
             close_topic()
 
-
-            title = topic_match.group(1).strip()
-
+            title = topic_match.group(
+                1
+            ).strip()
 
             output.append(
                 f"""
@@ -766,7 +893,6 @@ def build_html(briefing):
                     <div class="topic-body">
                 """
             )
-
 
             current_topic_open = True
 
@@ -783,16 +909,8 @@ def build_html(briefing):
             re.IGNORECASE
         ):
 
-            add_source_box()
-
-            close_numbered_list()
-
-            close_summary_list()
-
             close_topic()
-
             close_special()
-
 
             output.append(
                 """
@@ -806,14 +924,13 @@ def build_html(briefing):
                 """
             )
 
-
             current_special_open = True
 
             continue
 
 
         # ----------------------------------------------------
-        # MCQs
+        # MCQS
         # ----------------------------------------------------
 
         if re.match(
@@ -822,16 +939,8 @@ def build_html(briefing):
             re.IGNORECASE
         ):
 
-            add_source_box()
-
-            close_numbered_list()
-
-            close_summary_list()
-
             close_topic()
-
             close_special()
-
 
             output.append(
                 """
@@ -844,7 +953,6 @@ def build_html(briefing):
                     <div class="special-body">
                 """
             )
-
 
             current_special_open = True
 
@@ -861,16 +969,8 @@ def build_html(briefing):
             re.IGNORECASE
         ):
 
-            add_source_box()
-
-            close_numbered_list()
-
-            close_summary_list()
-
             close_topic()
-
             close_special()
-
 
             output.append(
                 """
@@ -883,7 +983,6 @@ def build_html(briefing):
                     <div class="special-body">
                 """
             )
-
 
             current_special_open = True
 
@@ -900,16 +999,13 @@ def build_html(briefing):
             re.IGNORECASE
         )
 
-
         if mcq_match:
 
-            close_numbered_list()
+            close_list()
 
-            close_summary_list()
-
-
-            title = mcq_match.group(1)
-
+            title = mcq_match.group(
+                1
+            )
 
             output.append(
                 f"""
@@ -919,6 +1015,34 @@ def build_html(briefing):
                 """
             )
 
+            continue
+
+
+        # ----------------------------------------------------
+        # QUICK SUMMARY HEADING
+        # ----------------------------------------------------
+
+        summary_match = re.search(
+            r"\*\*Quick Summary:\*\*",
+            line,
+            re.IGNORECASE
+        )
+
+        if summary_match:
+
+            close_list()
+
+            output.append(
+                """
+                <div class="section-heading">
+                    💡 Quick Summary
+                </div>
+
+                <ul class="summary-list">
+                """
+            )
+
+            list_type = "summary"
 
             continue
 
@@ -932,16 +1056,13 @@ def build_html(briefing):
             line
         )
 
-
         if heading_match:
 
-            close_numbered_list()
+            close_list()
 
-            close_summary_list()
-
-
-            heading = heading_match.group(1).strip()
-
+            heading = heading_match.group(
+                1
+            ).strip()
 
             heading = re.sub(
                 r"^\d+\.\s*",
@@ -949,44 +1070,31 @@ def build_html(briefing):
                 heading
             )
 
-
             heading_lower = heading.lower()
-
 
             if "what happened" in heading_lower:
 
                 icon = "📰"
 
-
-            elif "quick summary" in heading_lower:
-
-                icon = "⚡"
-
-
             elif "why it matters" in heading_lower:
 
                 icon = "🎯"
-
 
             elif "prelims facts" in heading_lower:
 
                 icon = "📌"
 
-
             elif "mains angle" in heading_lower:
 
                 icon = "✍️"
-
 
             elif "source" in heading_lower:
 
                 icon = "🔗"
 
-
             else:
 
                 icon = "▸"
-
 
             output.append(
                 f"""
@@ -995,7 +1103,6 @@ def build_html(briefing):
                 </div>
                 """
             )
-
 
             continue
 
@@ -1010,16 +1117,13 @@ def build_html(briefing):
             re.IGNORECASE
         )
 
-
         if category_match:
 
-            close_numbered_list()
+            close_list()
 
-            close_summary_list()
-
-
-            value = category_match.group(1).strip()
-
+            value = category_match.group(
+                1
+            ).strip()
 
             output.append(
                 f"""
@@ -1028,7 +1132,6 @@ def build_html(briefing):
                 </span>
                 """
             )
-
 
             continue
 
@@ -1043,16 +1146,13 @@ def build_html(briefing):
             re.IGNORECASE
         )
 
-
         if relevance_match:
 
-            close_numbered_list()
+            close_list()
 
-            close_summary_list()
-
-
-            value = relevance_match.group(1).strip()
-
+            value = relevance_match.group(
+                1
+            ).strip()
 
             output.append(
                 f"""
@@ -1061,7 +1161,6 @@ def build_html(briefing):
                 </span>
                 """
             )
-
 
             continue
 
@@ -1076,16 +1175,13 @@ def build_html(briefing):
             re.IGNORECASE
         )
 
-
         if gs_match:
 
-            close_numbered_list()
+            close_list()
 
-            close_summary_list()
-
-
-            value = gs_match.group(1).strip()
-
+            value = gs_match.group(
+                1
+            ).strip()
 
             output.append(
                 f"""
@@ -1094,63 +1190,6 @@ def build_html(briefing):
                 </span>
                 """
             )
-
-
-            continue
-
-
-        # ----------------------------------------------------
-        # SOURCE URL
-        # ----------------------------------------------------
-
-        source_url_match = re.search(
-            r"\*\*Source URL:\*\*\s*(.*)",
-            line,
-            re.IGNORECASE
-        )
-
-
-        if source_url_match:
-
-            close_numbered_list()
-
-            close_summary_list()
-
-
-            url_text = source_url_match.group(1).strip()
-
-
-            url = extract_link(
-                url_text
-            )
-
-
-            if url:
-
-                current_source_url = url
-
-
-            continue
-
-
-        # ----------------------------------------------------
-        # RAW URL
-        # ----------------------------------------------------
-
-        raw_url = extract_link(
-            line
-        )
-
-
-        if raw_url and line.strip() == raw_url:
-
-            close_numbered_list()
-
-            close_summary_list()
-
-
-            current_source_url = raw_url
-
 
             continue
 
@@ -1165,36 +1204,113 @@ def build_html(briefing):
             re.IGNORECASE
         )
 
-
         if source_match:
 
-            close_numbered_list()
+            close_list()
 
-            close_summary_list()
+            value = source_match.group(
+                1
+            ).strip()
 
+            if value:
 
-            current_source_name = (
-                source_match.group(1).strip()
-            )
-
-
-            same_line_url = extract_link(
-                current_source_name
-            )
-
-
-            if same_line_url:
-
-                current_source_url = (
-                    same_line_url
+                url = extract_link(
+                    value
                 )
 
+                clean_source = normalize_source_text(
+                    value
+                )
+
+                current_source_name = (
+                    clean_source
+                )
+
+                if url:
+
+                    current_source_url = url
+
+                    close_source_box()
+
+                else:
+
+                    pending_source_name = False
+
+            else:
+
+                pending_source_name = True
 
             continue
 
 
         # ----------------------------------------------------
-        # OLD SOURCE LINK
+        # SOURCE URL
+        # ----------------------------------------------------
+
+        source_url_match = re.search(
+            r"\*\*Source URL:\*\*\s*(.*)",
+            line,
+            re.IGNORECASE
+        )
+
+        if source_url_match:
+
+            close_list()
+
+            value = source_url_match.group(
+                1
+            ).strip()
+
+            if value:
+
+                url = extract_link(
+                    value
+                )
+
+                if url:
+
+                    current_source_url = url
+
+                    close_source_box()
+
+            else:
+
+                pending_source_url = True
+
+            continue
+
+
+        # ----------------------------------------------------
+        # ARTICLE TITLE OLD FORMAT
+        # ----------------------------------------------------
+
+        article_match = re.search(
+            r"\*\*Article Title:\*\*\s*(.*)",
+            line,
+            re.IGNORECASE
+        )
+
+        if article_match:
+
+            close_list()
+
+            value = article_match.group(
+                1
+            ).strip()
+
+            output.append(
+                f"""
+                <div class="article-title">
+                    📰 {clean_text(value)}
+                </div>
+                """
+            )
+
+            continue
+
+
+        # ----------------------------------------------------
+        # OLD SOURCE LINK FORMAT
         # ----------------------------------------------------
 
         if re.search(
@@ -1203,20 +1319,7 @@ def build_html(briefing):
             re.IGNORECASE
         ):
 
-            close_numbered_list()
-
-            close_summary_list()
-
-
-            old_url = extract_link(
-                line
-            )
-
-
-            if old_url:
-
-                current_source_url = old_url
-
+            close_list()
 
             continue
 
@@ -1231,16 +1334,13 @@ def build_html(briefing):
             re.IGNORECASE
         )
 
-
         if answer_match:
 
-            close_numbered_list()
+            close_list()
 
-            close_summary_list()
-
-
-            value = answer_match.group(1).strip()
-
+            value = answer_match.group(
+                1
+            ).strip()
 
             output.append(
                 f"""
@@ -1256,7 +1356,6 @@ def build_html(briefing):
                 """
             )
 
-
             continue
 
 
@@ -1270,16 +1369,13 @@ def build_html(briefing):
             re.IGNORECASE
         )
 
-
         if explanation_match:
 
-            close_numbered_list()
+            close_list()
 
-            close_summary_list()
-
-
-            value = explanation_match.group(1).strip()
-
+            value = explanation_match.group(
+                1
+            ).strip()
 
             output.append(
                 f"""
@@ -1295,48 +1391,34 @@ def build_html(briefing):
                 """
             )
 
-
             continue
 
 
         # ----------------------------------------------------
-        # SUMMARY BULLETS
+        # MCQ QUESTION
         # ----------------------------------------------------
 
-        bullet_match = re.match(
-            r"^[-*]\s+(.*)",
-            line
+        question_match = re.search(
+            r"\*\*Question:\*\*\s*(.*)",
+            line,
+            re.IGNORECASE
         )
 
+        if question_match:
 
-        if bullet_match:
+            close_list()
 
-            close_numbered_list()
-
-
-            if not in_summary_list:
-
-                output.append(
-                    '<ul class="summary-list">'
-                )
-
-                in_summary_list = True
-
-
-            value = bullet_match.group(1)
-
+            value = question_match.group(
+                1
+            ).strip()
 
             output.append(
                 f"""
-                <li>
-                    <span class="summary-icon">✓</span>
-                    <span>
-                        {clean_text(value)}
-                    </span>
-                </li>
+                <div class="mcq-question">
+                    {clean_text(value)}
+                </div>
                 """
             )
-
 
             continue
 
@@ -1346,22 +1428,21 @@ def build_html(briefing):
         # ----------------------------------------------------
 
         option_match = re.match(
-            r"^([A-D])[\)\.]\s*(.*)",
+            r"^([A-D])\)\s*(.*)",
             line
         )
 
-
         if option_match:
 
-            close_numbered_list()
+            close_list()
 
-            close_summary_list()
+            letter = option_match.group(
+                1
+            )
 
-
-            letter = option_match.group(1)
-
-            value = option_match.group(2)
-
+            value = option_match.group(
+                2
+            )
 
             output.append(
                 f"""
@@ -1379,7 +1460,6 @@ def build_html(briefing):
                 """
             )
 
-
             continue
 
 
@@ -1392,49 +1472,50 @@ def build_html(briefing):
             line
         )
 
-
         if numbered_match:
 
-            close_summary_list()
+            number = numbered_match.group(
+                1
+            )
 
+            value = numbered_match.group(
+                2
+            )
 
-            number = numbered_match.group(1)
+            # QUICK REVISION
+            if current_special_open:
 
-            value = numbered_match.group(2)
+                if list_type != "revision":
 
+                    close_list()
 
-            if re.match(
-                r"^(mains angle|source|source url|what happened|why it matters|quick summary)",
-                value,
-                re.IGNORECASE
-            ):
+                    output.append(
+                        "<ol class=\"revision-list\">"
+                    )
 
-                close_numbered_list()
-
-
-                heading = value
-
+                    list_type = "revision"
 
                 output.append(
                     f"""
-                    <div class="section-heading">
-                        ✍️ {clean_text(heading)}
-                    </div>
+                    <li>
+                        {clean_text(value)}
+                    </li>
                     """
                 )
-
 
                 continue
 
 
-            if not in_numbered_list:
+            # FACTS
+            if list_type != "facts":
+
+                close_list()
 
                 output.append(
-                    '<ol class="facts-list">'
+                    "<ol class=\"facts-list\">"
                 )
 
-                in_numbered_list = True
-
+                list_type = "facts"
 
             output.append(
                 f"""
@@ -1444,6 +1525,47 @@ def build_html(briefing):
                 """
             )
 
+            continue
+
+
+        # ----------------------------------------------------
+        # BULLET LIST
+        # ----------------------------------------------------
+
+        bullet_match = re.match(
+            r"^[-*]\s+(.*)",
+            line
+        )
+
+        if bullet_match:
+
+            value = bullet_match.group(
+                1
+            )
+
+            if list_type != "summary":
+
+                close_list()
+
+                output.append(
+                    "<ul class=\"summary-list\">"
+                )
+
+                list_type = "summary"
+
+            output.append(
+                f"""
+                <li>
+                    <span class="summary-check">
+                        ✓
+                    </span>
+
+                    <span>
+                        {clean_text(value)}
+                    </span>
+                </li>
+                """
+            )
 
             continue
 
@@ -1454,15 +1576,40 @@ def build_html(briefing):
 
         if line.startswith("---"):
 
-            close_numbered_list()
+            close_list()
 
-            close_summary_list()
+            continue
 
 
-            output.append(
-                "<hr>"
-            )
+        # ----------------------------------------------------
+        # RAW URL
+        # ----------------------------------------------------
 
+        raw_url = extract_link(
+            line
+        )
+
+        if raw_url and line == raw_url:
+
+            if pending_source_url:
+
+                current_source_url = raw_url
+
+                pending_source_url = False
+
+                close_source_box()
+
+                continue
+
+            if pending_source_name:
+
+                current_source_url = raw_url
+
+                pending_source_name = False
+
+                close_source_box()
+
+                continue
 
             continue
 
@@ -1471,18 +1618,13 @@ def build_html(briefing):
         # NORMAL TEXT
         # ----------------------------------------------------
 
-        close_numbered_list()
-
-        close_summary_list()
-
+        close_list()
 
         cleaned = remove_markdown_link(
             line
         )
 
-
         cleaned = cleaned.strip()
-
 
         if not cleaned:
 
@@ -1499,14 +1641,12 @@ def build_html(briefing):
 
 
     # ========================================================
-    # FINAL CLEANUP
+    # FINAL CLOSE
     # ========================================================
 
-    close_numbered_list()
+    close_list()
 
-    close_summary_list()
-
-    add_source_box()
+    close_source_box()
 
     close_topic()
 
@@ -1519,7 +1659,7 @@ def build_html(briefing):
 
 
 # ============================================================
-# 9. GENERATE EMAIL CONTENT
+# 10. GENERATE EMAIL CONTENT
 # ============================================================
 
 email_content = build_html(
@@ -1528,7 +1668,7 @@ email_content = build_html(
 
 
 # ============================================================
-# 10. BEAUTIFUL EMAIL
+# 11. BEAUTIFUL HTML EMAIL
 # ============================================================
 
 html_email = f"""
@@ -1549,6 +1689,7 @@ html_email = f"""
     UPSC Daily Current Affairs
 </title>
 
+
 <style>
 
 /* ==========================================================
@@ -1556,9 +1697,7 @@ html_email = f"""
    ========================================================== */
 
 body {{
-
     margin: 0;
-
     padding: 0;
 
     background: #eef2f7;
@@ -1579,9 +1718,7 @@ body {{
    ========================================================== */
 
 .container {{
-
     width: 100%;
-
     max-width: 760px;
 
     margin: 30px auto;
@@ -1603,7 +1740,6 @@ body {{
    ========================================================== */
 
 .header {{
-
     background:
         linear-gradient(
             135deg,
@@ -1619,7 +1755,6 @@ body {{
 }}
 
 .header h1 {{
-
     margin: 0;
 
     font-size: 28px;
@@ -1628,7 +1763,6 @@ body {{
 }}
 
 .header-subtitle {{
-
     margin-top: 10px;
 
     font-size: 15px;
@@ -1637,7 +1771,6 @@ body {{
 }}
 
 .header-date {{
-
     margin-top: 14px;
 
     display: inline-block;
@@ -1658,7 +1791,6 @@ body {{
    ========================================================== */
 
 .content {{
-
     padding: 28px;
 }}
 
@@ -1668,7 +1800,6 @@ body {{
    ========================================================== */
 
 .topic-card {{
-
     margin-bottom: 24px;
 
     border:
@@ -1686,11 +1817,9 @@ body {{
 }}
 
 .topic-title {{
-
     padding: 20px 22px;
 
-    background:
-        #f8fafc;
+    background: #f8fafc;
 
     border-bottom:
         1px solid #e2e8f0;
@@ -1705,7 +1834,6 @@ body {{
 }}
 
 .topic-body {{
-
     padding: 20px 22px;
 }}
 
@@ -1715,7 +1843,6 @@ body {{
    ========================================================== */
 
 .badge {{
-
     display: inline-block;
 
     margin:
@@ -1732,21 +1859,18 @@ body {{
 }}
 
 .category {{
-
     background: #e0f2fe;
 
     color: #075985;
 }}
 
 .relevance {{
-
     background: #fef3c7;
 
     color: #92400e;
 }}
 
 .gs {{
-
     background: #ede9fe;
 
     color: #5b21b6;
@@ -1758,7 +1882,6 @@ body {{
    ========================================================== */
 
 .section-heading {{
-
     margin-top: 20px;
 
     margin-bottom: 8px;
@@ -1780,7 +1903,6 @@ body {{
    ========================================================== */
 
 p {{
-
     margin:
         7px 0 13px;
 
@@ -1792,7 +1914,6 @@ p {{
 }}
 
 strong {{
-
     color: #0f172a;
 }}
 
@@ -1802,44 +1923,37 @@ strong {{
    ========================================================== */
 
 .summary-list {{
-
     list-style: none;
 
     margin:
         8px 0 18px;
 
-    padding: 0;
+    padding-left: 0;
 }}
 
 .summary-list li {{
-
     display: flex;
-
-    align-items: flex-start;
 
     gap: 9px;
 
     margin-bottom: 9px;
 
     padding:
-        10px 12px;
+        9px 12px;
 
     background: #f8fafc;
 
     border-left:
-        3px solid #3b82f6;
+        3px solid #2563eb;
 
-    border-radius: 7px;
-
-    color: #334155;
+    border-radius: 6px;
 
     font-size: 14px;
 
-    line-height: 1.55;
+    line-height: 1.6;
 }}
 
-.summary-icon {{
-
+.summary-check {{
     flex-shrink: 0;
 
     font-weight: 800;
@@ -1853,7 +1967,6 @@ strong {{
    ========================================================== */
 
 .facts-list {{
-
     margin:
         8px 0 15px;
 
@@ -1861,7 +1974,6 @@ strong {{
 }}
 
 .facts-list li {{
-
     margin-bottom: 10px;
 
     padding-left: 4px;
@@ -1873,11 +1985,30 @@ strong {{
 
 
 /* ==========================================================
+   REVISION
+   ========================================================== */
+
+.revision-list {{
+    margin:
+        8px 0 15px;
+
+    padding-left: 28px;
+}}
+
+.revision-list li {{
+    margin-bottom: 11px;
+
+    font-size: 14px;
+
+    line-height: 1.65;
+}}
+
+
+/* ==========================================================
    SOURCE
    ========================================================== */
 
 .source-box {{
-
     margin-top: 20px;
 
     padding: 16px;
@@ -1891,7 +2022,6 @@ strong {{
 }}
 
 .source-label {{
-
     color: #334155;
 
     font-size: 12px;
@@ -1902,7 +2032,6 @@ strong {{
 }}
 
 .source-name {{
-
     margin:
         5px 0 12px;
 
@@ -1914,11 +2043,10 @@ strong {{
 }}
 
 .source-button {{
-
     display: inline-block;
 
     padding:
-        9px 15px;
+        8px 14px;
 
     background: #1d4ed8;
 
@@ -1933,18 +2061,12 @@ strong {{
     font-weight: 700;
 }}
 
-.source-button:hover {{
-
-    text-decoration: none;
-}}
-
 
 /* ==========================================================
    ARTICLE TITLE
    ========================================================== */
 
 .article-title {{
-
     margin-top: 12px;
 
     color: #64748b;
@@ -1954,11 +2076,26 @@ strong {{
 
 
 /* ==========================================================
+   MCQ QUESTION
+   ========================================================== */
+
+.mcq-question {{
+    margin:
+        10px 0 12px;
+
+    font-size: 14px;
+
+    line-height: 1.7;
+
+    color: #334155;
+}}
+
+
+/* ==========================================================
    MCQ OPTIONS
    ========================================================== */
 
 .option {{
-
     display: flex;
 
     align-items: flex-start;
@@ -1982,7 +2119,6 @@ strong {{
 }}
 
 .option-letter {{
-
     flex-shrink: 0;
 
     width: 24px;
@@ -2012,7 +2148,6 @@ strong {{
    ========================================================== */
 
 .mcq-title {{
-
     margin-top: 22px;
 
     margin-bottom: 10px;
@@ -2030,7 +2165,6 @@ strong {{
    ========================================================== */
 
 .answer-box {{
-
     margin-top: 13px;
 
     padding:
@@ -2054,10 +2188,10 @@ strong {{
    ========================================================== */
 
 .explanation {{
-
     margin-top: 8px;
 
-    padding: 10px 12px;
+    padding:
+        10px 12px;
 
     background: #f8fafc;
 
@@ -2076,7 +2210,6 @@ strong {{
    ========================================================== */
 
 .special-card {{
-
     margin-top: 28px;
 
     margin-bottom: 24px;
@@ -2087,7 +2220,6 @@ strong {{
 }}
 
 .special-title {{
-
     margin-bottom: 18px;
 
     font-size: 20px;
@@ -2096,17 +2228,15 @@ strong {{
 }}
 
 .special-body {{
-
     font-size: 14px;
 }}
 
 
 /* ==========================================================
-   REVISION
+   REVISION CARD
    ========================================================== */
 
 .revision-card {{
-
     background: #eff6ff;
 
     border:
@@ -2114,7 +2244,6 @@ strong {{
 }}
 
 .revision-card .special-title {{
-
     color: #1e3a8a;
 }}
 
@@ -2124,7 +2253,6 @@ strong {{
    ========================================================== */
 
 .mcq-card {{
-
     background: #faf5ff;
 
     border:
@@ -2132,7 +2260,6 @@ strong {{
 }}
 
 .mcq-card .special-title {{
-
     color: #5b21b6;
 }}
 
@@ -2142,7 +2269,6 @@ strong {{
    ========================================================== */
 
 .mains-card {{
-
     background: #fff7ed;
 
     border:
@@ -2150,24 +2276,7 @@ strong {{
 }}
 
 .mains-card .special-title {{
-
     color: #9a3412;
-}}
-
-
-/* ==========================================================
-   DIVIDER
-   ========================================================== */
-
-hr {{
-
-    border: 0;
-
-    border-top:
-        1px solid #e2e8f0;
-
-    margin:
-        22px 0;
 }}
 
 
@@ -2176,7 +2285,6 @@ hr {{
    ========================================================== */
 
 .footer {{
-
     padding:
         22px 25px;
 
@@ -2195,7 +2303,6 @@ hr {{
 }}
 
 .footer strong {{
-
     color: #334155;
 }}
 
@@ -2207,12 +2314,10 @@ hr {{
 @media only screen and (max-width: 600px) {{
 
     body {{
-
         background: #ffffff;
     }}
 
     .container {{
-
         margin: 0;
 
         border-radius: 0;
@@ -2221,23 +2326,19 @@ hr {{
     }}
 
     .header {{
-
         padding:
             28px 18px;
     }}
 
     .header h1 {{
-
         font-size: 23px;
     }}
 
     .content {{
-
         padding: 16px;
     }}
 
     .topic-title {{
-
         padding:
             17px;
 
@@ -2245,24 +2346,16 @@ hr {{
     }}
 
     .topic-body {{
-
         padding:
             17px;
     }}
 
     .special-card {{
-
         padding:
             17px;
     }}
 
-    .summary-list li {{
-
-        font-size: 13px;
-    }}
-
     p {{
-
         font-size: 14px;
     }}
 
@@ -2274,7 +2367,6 @@ hr {{
 
 
 <body>
-
 
 <div class="container">
 
@@ -2288,15 +2380,11 @@ hr {{
         </h1>
 
         <div class="header-subtitle">
-
             AI-powered Civil Services Briefing
-
         </div>
 
         <div class="header-date">
-
             {today}
-
         </div>
 
     </div>
@@ -2334,7 +2422,6 @@ hr {{
 
 </div>
 
-
 </body>
 
 </html>
@@ -2342,18 +2429,16 @@ hr {{
 
 
 # ============================================================
-# 11. SEND EMAIL
+# 12. SEND EMAIL
 # ============================================================
 
 sender = os.environ[
     "GMAIL_USERNAME"
 ]
 
-
 app_password = os.environ[
     "GMAIL_APP_PASSWORD"
 ]
-
 
 recipient = sender
 
@@ -2364,9 +2449,8 @@ message = MIMEMultipart(
 
 
 message["Subject"] = (
-    "UPSC Daily Current Affairs - AI Briefing"
+    "🇮🇳 UPSC Daily Current Affairs - AI Briefing"
 )
-
 
 message["From"] = sender
 
@@ -2374,40 +2458,34 @@ message["To"] = recipient
 
 
 # ------------------------------------------------------------
-# Plain-text fallback
+# PLAIN TEXT FALLBACK
 # ------------------------------------------------------------
 
 message.attach(
-
     MIMEText(
-
         briefing,
-
         "plain",
-
         "utf-8"
-
     )
 )
 
 
 # ------------------------------------------------------------
-# HTML email
+# HTML EMAIL
 # ------------------------------------------------------------
 
 message.attach(
-
     MIMEText(
-
         html_email,
-
         "html",
-
         "utf-8"
-
     )
 )
 
+
+# ============================================================
+# 13. SEND THROUGH GMAIL SMTP
+# ============================================================
 
 print(
     "\nSending email..."
@@ -2437,11 +2515,9 @@ print(
     "\n===================================="
 )
 
-
 print(
     "EMAIL SENT SUCCESSFULLY"
 )
-
 
 print(
     "===================================="
