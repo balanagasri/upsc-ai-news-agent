@@ -30,7 +30,6 @@ queries = [
 
 articles = []
 
-
 for query in queries:
 
     encoded_query = urllib.parse.quote(query)
@@ -76,7 +75,6 @@ for query in queries:
 
 unique_articles = {}
 
-
 for article in articles:
 
     title = article["title"].strip()
@@ -87,7 +85,6 @@ for article in articles:
 
 
 articles = list(unique_articles.values())
-
 
 print(
     f"Collected {len(articles)} unique articles."
@@ -106,7 +103,6 @@ if not articles:
 # ============================================================
 
 news_text = ""
-
 
 for i, article in enumerate(
     articles[:30],
@@ -156,6 +152,7 @@ IMPORTANT ACCURACY RULES:
 
 4. If an important fact cannot be established from the
    supplied material, write:
+
    "Requires verification."
 
 5. Do not confuse an article's opinion or criticism with
@@ -165,6 +162,17 @@ IMPORTANT ACCURACY RULES:
 
 7. Keep the briefing useful for UPSC preparation rather
    than general news reading.
+
+8. For every selected topic, use the SOURCE LINK supplied
+   in the article data.
+
+9. The SOURCE URL must be copied EXACTLY from the supplied
+   SOURCE LINK.
+
+10. Do NOT modify, shorten, rewrite, invent, or replace
+    the SOURCE URL.
+
+11. Never create a fake URL.
 
 PRIORITIZE:
 
@@ -227,6 +235,20 @@ One analytical UPSC-style Mains question.
 **Source:**
 Article title - source name.
 
+**Source URL:**
+EXACT SOURCE LINK copied from the supplied article data.
+
+IMPORTANT:
+
+- The Source URL must be the exact URL from one of the supplied
+  SOURCE LINK fields.
+- Do not generate a new URL.
+- Do not change the URL.
+- Do not use a homepage URL instead.
+- Do not use a shortened URL.
+- Do not use Markdown links.
+- Output the complete URL as plain text.
+
 Do NOT add a fourth numbered item under Prelims Facts.
 
 At the end provide:
@@ -284,12 +306,10 @@ NEWS ARTICLES:
 
 api_key = os.environ["GEMINI_API_KEY"]
 
-
 gemini_url = (
     "https://generativelanguage.googleapis.com/v1beta/"
     "models/gemini-3.5-flash:generateContent"
 )
-
 
 request_body = {
 
@@ -309,7 +329,6 @@ request_body = {
 
 }
 
-
 request = urllib.request.Request(
 
     gemini_url,
@@ -325,7 +344,6 @@ request = urllib.request.Request(
 
     method="POST"
 )
-
 
 try:
 
@@ -458,7 +476,9 @@ def extract_link(text):
 
     if match:
 
-        return match.group(0)
+        return match.group(0).rstrip(
+            ".,;:!?\"'"
+        )
 
     return ""
 
@@ -467,9 +487,11 @@ def remove_markdown_link(text):
 
     """
     Turn:
+
     [Source](URL)
 
     into:
+
     Source
     """
 
@@ -496,11 +518,11 @@ def build_html(briefing):
     output = []
 
     current_topic_open = False
-
     current_special_open = False
-
     in_numbered_list = False
 
+    current_source_name = ""
+    current_source_url = ""
 
     def close_numbered_list():
 
@@ -545,6 +567,73 @@ def build_html(briefing):
             current_special_open = False
 
 
+    def add_source_box():
+
+        nonlocal current_source_name
+        nonlocal current_source_url
+
+        if not current_source_name and not current_source_url:
+            return
+
+        clean_source = remove_markdown_link(
+            current_source_name
+        )
+
+        clean_source = re.sub(
+            r"https?://[^\s]+",
+            "",
+            clean_source
+        ).strip()
+
+        if current_source_url:
+
+            output.append(
+                f"""
+                <div class="source-box">
+
+                    <div class="source-label">
+                        🔗 Source
+                    </div>
+
+                    <div class="source-name">
+                        {clean_text(clean_source)}
+                    </div>
+
+                    <a
+                        class="source-button"
+                        href="{html.escape(current_source_url, quote=True)}"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                    >
+                        Read Source →
+                    </a>
+
+                </div>
+                """
+            )
+
+        else:
+
+            output.append(
+                f"""
+                <div class="source-box">
+
+                    <div class="source-label">
+                        🔗 Source
+                    </div>
+
+                    <div class="source-name">
+                        {clean_text(clean_source)}
+                    </div>
+
+                </div>
+                """
+            )
+
+        current_source_name = ""
+        current_source_url = ""
+
+
     for raw_line in lines:
 
         line = raw_line.strip()
@@ -573,10 +662,10 @@ def build_html(briefing):
 
         if topic_match:
 
+            add_source_box()
+
             close_numbered_list()
-
             close_special()
-
             close_topic()
 
             title = topic_match.group(1).strip()
@@ -608,10 +697,10 @@ def build_html(briefing):
             re.IGNORECASE
         ):
 
+            add_source_box()
+
             close_numbered_list()
-
             close_topic()
-
             close_special()
 
             output.append(
@@ -641,10 +730,10 @@ def build_html(briefing):
             re.IGNORECASE
         ):
 
+            add_source_box()
+
             close_numbered_list()
-
             close_topic()
-
             close_special()
 
             output.append(
@@ -674,10 +763,10 @@ def build_html(briefing):
             re.IGNORECASE
         ):
 
+            add_source_box()
+
             close_numbered_list()
-
             close_topic()
-
             close_special()
 
             output.append(
@@ -739,15 +828,12 @@ def build_html(briefing):
 
             heading = heading_match.group(1).strip()
 
-            # Prevent "4. Mains Angle" caused by
-            # incorrectly generated numbered headings.
             heading = re.sub(
                 r"^\d+\.\s*",
                 "",
                 heading
             )
 
-            # Special styling
             heading_lower = heading.lower()
 
             if "what happened" in heading_lower:
@@ -867,6 +953,33 @@ def build_html(briefing):
 
 
         # ----------------------------------------------------
+        # SOURCE URL
+        # ----------------------------------------------------
+
+        source_url_match = re.search(
+            r"\*\*Source URL:\*\*\s*(.*)",
+            line,
+            re.IGNORECASE
+        )
+
+        if source_url_match:
+
+            close_numbered_list()
+
+            url_text = source_url_match.group(1).strip()
+
+            url = extract_link(
+                url_text
+            )
+
+            if url:
+
+                current_source_url = url
+
+            continue
+
+
+        # ----------------------------------------------------
         # SOURCE
         # ----------------------------------------------------
 
@@ -880,94 +993,20 @@ def build_html(briefing):
 
             close_numbered_list()
 
-            value = source_match.group(1).strip()
+            current_source_name = source_match.group(1).strip()
 
-            url = extract_link(
-                value
+            # Sometimes Gemini may include the URL on the
+            # same Source line.
+            same_line_url = extract_link(
+                current_source_name
             )
 
-            clean_source = remove_markdown_link(
-                value
-            )
+            if same_line_url:
 
-            clean_source = re.sub(
-                r"https?://[^\s]+",
-                "",
-                clean_source
-            ).strip()
+                current_source_url = same_line_url
 
-            if url:
-
-                output.append(
-                    f"""
-                    <div class="source-box">
-
-                        <div class="source-label">
-                            🔗 Source
-                        </div>
-
-                        <div class="source-name">
-                            {clean_text(clean_source)}
-                        </div>
-
-                        <a
-                            class="source-button"
-                            href="{html.escape(url, quote=True)}"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                        >
-                            Read Source →
-                        </a>
-
-                    </div>
-                    """
-                )
-
-            else:
-
-                output.append(
-                    f"""
-                    <div class="source-box">
-
-                        <div class="source-label">
-                            🔗 Source
-                        </div>
-
-                        <div class="source-name">
-                            {clean_text(clean_source)}
-                        </div>
-
-                    </div>
-                    """
-                )
-
-            continue
-
-
-        # ----------------------------------------------------
-        # ARTICLE TITLE
-        # ----------------------------------------------------
-
-        article_match = re.search(
-            r"\*\*Article Title:\*\*\s*(.*)",
-            line,
-            re.IGNORECASE
-        )
-
-        if article_match:
-
-            close_numbered_list()
-
-            value = article_match.group(1).strip()
-
-            output.append(
-                f"""
-                <div class="article-title">
-                    📰 {clean_text(value)}
-                </div>
-                """
-            )
-
+            # Don't immediately create the box.
+            # We wait for Source URL.
             continue
 
 
@@ -982,6 +1021,14 @@ def build_html(briefing):
         ):
 
             close_numbered_list()
+
+            old_url = extract_link(
+                line
+            )
+
+            if old_url:
+
+                current_source_url = old_url
 
             continue
 
@@ -1102,19 +1149,16 @@ def build_html(briefing):
 
             # If Gemini accidentally produces
             # "4. Mains Angle", don't treat it as a fact.
+
             if re.match(
-                r"^(mains angle|source|what happened|why it matters)",
+                r"^(mains angle|source|source url|what happened|why it matters)",
                 value,
                 re.IGNORECASE
             ):
 
                 close_numbered_list()
 
-                heading = re.sub(
-                    r"^\s*",
-                    "",
-                    value
-                )
+                heading = value
 
                 output.append(
                     f"""
@@ -1187,12 +1231,17 @@ def build_html(briefing):
         )
 
 
+    # --------------------------------------------------------
+    # FINAL CLEANUP
+    # --------------------------------------------------------
+
     close_numbered_list()
+
+    add_source_box()
 
     close_topic()
 
     close_special()
-
 
     return "\n".join(
         output
@@ -1548,7 +1597,7 @@ strong {{
     display: inline-block;
 
     padding:
-        8px 14px;
+        9px 15px;
 
     background: #1d4ed8;
 
@@ -1561,6 +1610,11 @@ strong {{
     font-size: 12px;
 
     font-weight: 700;
+}}
+
+.source-button:hover {{
+
+    text-decoration: none;
 }}
 
 
@@ -1980,11 +2034,9 @@ message = MIMEMultipart(
     "alternative"
 )
 
-
 message["Subject"] = (
     "UPSC Daily Current Affairs - AI Briefing"
 )
-
 
 message["From"] = sender
 
