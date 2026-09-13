@@ -1,0 +1,17 @@
+name: Scheduler Test
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Confirm scheduler
+        run: |
+          echo "SCHEDULE TRIGGER WORKED"
+          date -u
