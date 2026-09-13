@@ -788,18 +788,91 @@ def resolve_google_news_url(url):
     return url
 
 
-def resolve_google_news_links_in_text(text):
-    """Replace Google News RSS links in Gemini output with publisher URLs."""
+def resolve_google_news_url_with_browser(url):
+    """Fallback resolver for Google News URLs that the HTTP decoder cannot resolve."""
+    try:
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(
+                locale="en-IN",
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/131.0.0.0 Safari/537.36"
+                ),
+            )
+            page = context.new_page()
+            page.goto(url, wait_until="domcontentloaded", timeout=20000)
+            page.wait_for_timeout(2500)
+            final_url = page.url
+            context.close()
+            browser.close()
+
+        parsed = urllib.parse.urlparse(final_url)
+        host = parsed.hostname or ""
+        if (
+            final_url.startswith(("http://", "https://"))
+            and host not in {"news.google.com", "www.news.google.com"}
+            and "google.com" not in host
+        ):
+            return final_url
+
+    except Exception as e:
+        print(f"Browser fallback could not resolve Google News URL: {e}")
+
+    return ""
+
+
+def make_google_search_url(title, source):
+    """Always-valid fallback when a direct publisher URL cannot be recovered."""
+    query = f'"{title}" {source}'.strip()
+    return "https://www.google.com/search?q=" + urllib.parse.quote_plus(query)
+
+
+def resolve_google_news_links_in_text(text, articles):
+    """Replace Google News RSS links with direct publisher URLs.
+
+    HTTP decoding is tried first. Only links that remain unresolved use
+    Playwright. If even the browser cannot resolve one, use a valid Google
+    Search URL instead of sending a broken Google News redirect URL.
+    """
     pattern = re.compile(
         r"https://news\.google\.com/(?:rss/)?articles/[A-Za-z0-9_-]+(?:\?[^\s)\]>]+)?"
     )
 
+    article_map = {
+        article.get("link", ""): article
+        for article in articles
+        if article.get("link")
+    }
     cache = {}
 
     def replace(match):
         original = match.group(0)
         if original not in cache:
-            cache[original] = resolve_google_news_url(original)
+            resolved = resolve_google_news_url(original)
+
+            if resolved == original or not resolved:
+                print("Trying browser fallback for Google News URL...")
+                resolved = resolve_google_news_url_with_browser(original)
+
+            if not resolved:
+                article = article_map.get(original)
+                if article:
+                    resolved = make_google_search_url(
+                        article.get("title", "UPSC current affairs"),
+                        article.get("source", "News"),
+                    )
+                else:
+                    resolved = "https://www.google.com/search?q=" + urllib.parse.quote_plus(
+                        original
+                    )
+                print("Using safe Google Search fallback for one unresolved source URL.")
+
+            cache[original] = resolved
+
         return cache[original]
 
     return pattern.sub(replace, text)
@@ -835,7 +908,7 @@ except Exception:
 # Replace Google News redirect links with direct publisher URLs where possible.
 # This happens after Gemini selection, so only the few final article links need
 # to be resolved.
-briefing = resolve_google_news_links_in_text(briefing)
+briefing = resolve_google_news_links_in_text(briefing, articles)
 
 
 print(
