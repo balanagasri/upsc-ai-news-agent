@@ -29,7 +29,7 @@ queries = [
     "India international relations when:2d",
     "India government schemes when:2d"
 ]
-
+# Latest-news mode: only articles from the previous 48 hours.
 articles = []
 
 # Independent freshness safeguard: only accept articles published
