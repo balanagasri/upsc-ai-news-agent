@@ -3,6 +3,9 @@ name: UPSC AI News Agent
 on:
   workflow_dispatch:
 
+  schedule:
+    - cron: "30 1 * * *"
+
 jobs:
   fetch-analyze-email:
     runs-on: ubuntu-latest
