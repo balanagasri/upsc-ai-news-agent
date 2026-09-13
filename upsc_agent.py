@@ -842,11 +842,17 @@ def resolve_google_news_links_in_text(text, articles):
         r"https://news\.google\.com/(?:rss/)?articles/[A-Za-z0-9_-]+(?:\?[^\s)\]>]+)?"
     )
 
-    article_map = {
-        article.get("link", ""): article
-        for article in articles
-        if article.get("link")
-    }
+    # Match article metadata even when Gemini slightly changes the URL
+    # (for example by adding/removing a query string).
+    article_map = {}
+    for article in articles:
+        link = article.get("link", "")
+        if link:
+            normalized = urllib.parse.urlunparse(
+                urllib.parse.urlparse(link)._replace(query="", fragment="")
+            )
+            article_map[normalized] = article
+
     cache = {}
 
     def replace(match):
@@ -859,16 +865,34 @@ def resolve_google_news_links_in_text(text, articles):
                 resolved = resolve_google_news_url_with_browser(original)
 
             if not resolved:
-                article = article_map.get(original)
+                normalized_original = urllib.parse.urlunparse(
+                    urllib.parse.urlparse(original)._replace(query="", fragment="")
+                )
+                article = article_map.get(normalized_original)
+
+                # If exact matching still fails, match the Google News article
+                # ID. This handles minor URL formatting differences.
+                if not article:
+                    original_id = urllib.parse.urlparse(original).path.rstrip("/").split("/")[-1]
+                    for candidate in articles:
+                        candidate_link = candidate.get("link", "")
+                        candidate_id = urllib.parse.urlparse(candidate_link).path.rstrip("/").split("/")[-1]
+                        if original_id and original_id == candidate_id:
+                            article = candidate
+                            break
+
                 if article:
                     resolved = make_google_search_url(
                         article.get("title", "UPSC current affairs"),
                         article.get("source", "News"),
                     )
                 else:
-                    resolved = "https://www.google.com/search?q=" + urllib.parse.quote_plus(
-                        original
-                    )
+                    # Last-resort fallback. This is still a valid Google URL,
+                    # but it searches for the actual article identifier rather
+                    # than searching for the entire Google News URL.
+                    article_id = urllib.parse.urlparse(original).path.rstrip("/").split("/")[-1]
+                    resolved = "https://www.google.com/search?q=" + urllib.parse.quote_plus(article_id)
+
                 print("Using safe Google Search fallback for one unresolved source URL.")
 
             cache[original] = resolved
