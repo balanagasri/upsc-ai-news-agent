@@ -30,6 +30,7 @@ queries = [
 
 articles = []
 
+
 for query in queries:
 
     encoded_query = urllib.parse.quote(query)
@@ -52,9 +53,20 @@ for query in queries:
 
         for item in root.findall(".//item")[:5]:
 
-            title = item.findtext("title", "")
-            link = item.findtext("link", "")
-            description = item.findtext("description", "")
+            title = item.findtext(
+                "title",
+                ""
+            )
+
+            link = item.findtext(
+                "link",
+                ""
+            )
+
+            description = item.findtext(
+                "description",
+                ""
+            )
 
             articles.append({
                 "title": title,
@@ -75,6 +87,7 @@ for query in queries:
 
 unique_articles = {}
 
+
 for article in articles:
 
     title = article["title"].strip()
@@ -84,7 +97,10 @@ for article in articles:
         unique_articles[title] = article
 
 
-articles = list(unique_articles.values())
+articles = list(
+    unique_articles.values()
+)
+
 
 print(
     f"Collected {len(articles)} unique articles."
@@ -103,6 +119,7 @@ if not articles:
 # ============================================================
 
 news_text = ""
+
 
 for i, article in enumerate(
     articles[:30],
@@ -163,16 +180,18 @@ IMPORTANT ACCURACY RULES:
 7. Keep the briefing useful for UPSC preparation rather
    than general news reading.
 
-8. For every selected topic, use the SOURCE LINK supplied
-   in the article data.
+8. Never invent a source URL.
 
-9. The SOURCE URL must be copied EXACTLY from the supplied
-   SOURCE LINK.
+9. Use only URLs supplied in the NEWS ARTICLES section.
 
-10. Do NOT modify, shorten, rewrite, invent, or replace
-    the SOURCE URL.
+10. When providing Source URL, copy the exact SOURCE LINK
+    from the supplied article.
 
-11. Never create a fake URL.
+11. Do not modify, shorten, rewrite, or replace the URL.
+
+12. Do not use a homepage URL instead of the article URL.
+
+13. Do not use Markdown links for Source URL.
 
 PRIORITIZE:
 
@@ -218,6 +237,15 @@ For every selected topic use EXACTLY this structure:
 **What Happened:**
 Explain in 2-4 concise sentences.
 
+**Quick Summary:**
+Provide exactly 3 short bullet points.
+Each bullet should summarize one important takeaway
+from this topic in simple language.
+
+- Short point 1
+- Short point 2
+- Short point 3
+
 **Why It Matters for UPSC:**
 Explain in 2-4 concise sentences.
 
@@ -238,16 +266,24 @@ Article title - source name.
 **Source URL:**
 EXACT SOURCE LINK copied from the supplied article data.
 
-IMPORTANT:
+IMPORTANT SOURCE RULES:
 
-- The Source URL must be the exact URL from one of the supplied
-  SOURCE LINK fields.
-- Do not generate a new URL.
-- Do not change the URL.
-- Do not use a homepage URL instead.
-- Do not use a shortened URL.
-- Do not use Markdown links.
-- Output the complete URL as plain text.
+- Source URL must be one of the exact SOURCE LINK URLs
+  supplied in the NEWS ARTICLES section.
+- Never create a new URL.
+- Never shorten the URL.
+- Never replace it with the publication homepage.
+- Never use a fake URL.
+- Output the URL as plain text.
+
+IMPORTANT QUICK SUMMARY RULES:
+
+- Exactly 3 bullets per topic.
+- Keep each bullet short.
+- Prefer approximately 8-18 words per bullet.
+- Do not repeat the entire What Happened section.
+- Focus on the most important UPSC takeaway.
+- Use simple language.
 
 Do NOT add a fourth numbered item under Prelims Facts.
 
@@ -304,12 +340,16 @@ NEWS ARTICLES:
 # 5. CALL GEMINI
 # ============================================================
 
-api_key = os.environ["GEMINI_API_KEY"]
+api_key = os.environ[
+    "GEMINI_API_KEY"
+]
+
 
 gemini_url = (
     "https://generativelanguage.googleapis.com/v1beta/"
     "models/gemini-3.5-flash:generateContent"
 )
+
 
 request_body = {
 
@@ -329,6 +369,7 @@ request_body = {
 
 }
 
+
 request = urllib.request.Request(
 
     gemini_url,
@@ -344,6 +385,7 @@ request = urllib.request.Request(
 
     method="POST"
 )
+
 
 try:
 
@@ -428,7 +470,7 @@ def clean_text(text):
 
     text = text.strip()
 
-    # Remove leading markdown bullets
+    # Remove markdown bullets
     text = re.sub(
         r"^\s*[-*]\s+",
         "",
@@ -454,7 +496,7 @@ def clean_text(text):
         text
     )
 
-    # Remove remaining markdown stars
+    # Remove remaining stars
     text = text.replace(
         "*",
         ""
@@ -486,7 +528,7 @@ def extract_link(text):
 def remove_markdown_link(text):
 
     """
-    Turn:
+    Convert:
 
     [Source](URL)
 
@@ -518,11 +560,17 @@ def build_html(briefing):
     output = []
 
     current_topic_open = False
+
     current_special_open = False
+
     in_numbered_list = False
 
+    in_summary_list = False
+
     current_source_name = ""
+
     current_source_url = ""
+
 
     def close_numbered_list():
 
@@ -537,11 +585,26 @@ def build_html(briefing):
             in_numbered_list = False
 
 
+    def close_summary_list():
+
+        nonlocal in_summary_list
+
+        if in_summary_list:
+
+            output.append(
+                "</ul>"
+            )
+
+            in_summary_list = False
+
+
     def close_topic():
 
         nonlocal current_topic_open
 
         close_numbered_list()
+
+        close_summary_list()
 
         if current_topic_open:
 
@@ -558,6 +621,8 @@ def build_html(briefing):
 
         close_numbered_list()
 
+        close_summary_list()
+
         if current_special_open:
 
             output.append(
@@ -570,20 +635,29 @@ def build_html(briefing):
     def add_source_box():
 
         nonlocal current_source_name
+
         nonlocal current_source_url
 
-        if not current_source_name and not current_source_url:
+        if (
+            not current_source_name
+            and
+            not current_source_url
+        ):
+
             return
+
 
         clean_source = remove_markdown_link(
             current_source_name
         )
+
 
         clean_source = re.sub(
             r"https?://[^\s]+",
             "",
             clean_source
         ).strip()
+
 
         if current_source_url:
 
@@ -630,7 +704,9 @@ def build_html(briefing):
                 """
             )
 
+
         current_source_name = ""
+
         current_source_url = ""
 
 
@@ -647,6 +723,8 @@ def build_html(briefing):
 
             close_numbered_list()
 
+            close_summary_list()
+
             continue
 
 
@@ -660,15 +738,22 @@ def build_html(briefing):
             re.IGNORECASE
         )
 
+
         if topic_match:
 
             add_source_box()
 
             close_numbered_list()
+
+            close_summary_list()
+
             close_special()
+
             close_topic()
 
+
             title = topic_match.group(1).strip()
+
 
             output.append(
                 f"""
@@ -682,13 +767,14 @@ def build_html(briefing):
                 """
             )
 
+
             current_topic_open = True
 
             continue
 
 
         # ----------------------------------------------------
-        # SPECIAL SECTION: QUICK REVISION
+        # QUICK REVISION
         # ----------------------------------------------------
 
         if re.match(
@@ -700,8 +786,13 @@ def build_html(briefing):
             add_source_box()
 
             close_numbered_list()
+
+            close_summary_list()
+
             close_topic()
+
             close_special()
+
 
             output.append(
                 """
@@ -715,13 +806,14 @@ def build_html(briefing):
                 """
             )
 
+
             current_special_open = True
 
             continue
 
 
         # ----------------------------------------------------
-        # SPECIAL SECTION: MCQs
+        # MCQs
         # ----------------------------------------------------
 
         if re.match(
@@ -733,8 +825,13 @@ def build_html(briefing):
             add_source_box()
 
             close_numbered_list()
+
+            close_summary_list()
+
             close_topic()
+
             close_special()
+
 
             output.append(
                 """
@@ -748,13 +845,14 @@ def build_html(briefing):
                 """
             )
 
+
             current_special_open = True
 
             continue
 
 
         # ----------------------------------------------------
-        # SPECIAL SECTION: MAINS
+        # MAINS
         # ----------------------------------------------------
 
         if re.match(
@@ -766,8 +864,13 @@ def build_html(briefing):
             add_source_box()
 
             close_numbered_list()
+
+            close_summary_list()
+
             close_topic()
+
             close_special()
+
 
             output.append(
                 """
@@ -780,6 +883,7 @@ def build_html(briefing):
                     <div class="special-body">
                 """
             )
+
 
             current_special_open = True
 
@@ -796,11 +900,16 @@ def build_html(briefing):
             re.IGNORECASE
         )
 
+
         if mcq_match:
 
             close_numbered_list()
 
+            close_summary_list()
+
+
             title = mcq_match.group(1)
+
 
             output.append(
                 f"""
@@ -809,6 +918,7 @@ def build_html(briefing):
                 </div>
                 """
             )
+
 
             continue
 
@@ -822,11 +932,16 @@ def build_html(briefing):
             line
         )
 
+
         if heading_match:
 
             close_numbered_list()
 
+            close_summary_list()
+
+
             heading = heading_match.group(1).strip()
+
 
             heading = re.sub(
                 r"^\d+\.\s*",
@@ -834,31 +949,44 @@ def build_html(briefing):
                 heading
             )
 
+
             heading_lower = heading.lower()
+
 
             if "what happened" in heading_lower:
 
                 icon = "📰"
 
+
+            elif "quick summary" in heading_lower:
+
+                icon = "⚡"
+
+
             elif "why it matters" in heading_lower:
 
                 icon = "🎯"
+
 
             elif "prelims facts" in heading_lower:
 
                 icon = "📌"
 
+
             elif "mains angle" in heading_lower:
 
                 icon = "✍️"
+
 
             elif "source" in heading_lower:
 
                 icon = "🔗"
 
+
             else:
 
                 icon = "▸"
+
 
             output.append(
                 f"""
@@ -867,6 +995,7 @@ def build_html(briefing):
                 </div>
                 """
             )
+
 
             continue
 
@@ -881,11 +1010,16 @@ def build_html(briefing):
             re.IGNORECASE
         )
 
+
         if category_match:
 
             close_numbered_list()
 
+            close_summary_list()
+
+
             value = category_match.group(1).strip()
+
 
             output.append(
                 f"""
@@ -894,6 +1028,7 @@ def build_html(briefing):
                 </span>
                 """
             )
+
 
             continue
 
@@ -908,11 +1043,16 @@ def build_html(briefing):
             re.IGNORECASE
         )
 
+
         if relevance_match:
 
             close_numbered_list()
 
+            close_summary_list()
+
+
             value = relevance_match.group(1).strip()
+
 
             output.append(
                 f"""
@@ -921,6 +1061,7 @@ def build_html(briefing):
                 </span>
                 """
             )
+
 
             continue
 
@@ -935,11 +1076,16 @@ def build_html(briefing):
             re.IGNORECASE
         )
 
+
         if gs_match:
 
             close_numbered_list()
 
+            close_summary_list()
+
+
             value = gs_match.group(1).strip()
+
 
             output.append(
                 f"""
@@ -948,6 +1094,7 @@ def build_html(briefing):
                 </span>
                 """
             )
+
 
             continue
 
@@ -962,19 +1109,48 @@ def build_html(briefing):
             re.IGNORECASE
         )
 
+
         if source_url_match:
 
             close_numbered_list()
 
+            close_summary_list()
+
+
             url_text = source_url_match.group(1).strip()
+
 
             url = extract_link(
                 url_text
             )
 
+
             if url:
 
                 current_source_url = url
+
+
+            continue
+
+
+        # ----------------------------------------------------
+        # RAW URL
+        # ----------------------------------------------------
+
+        raw_url = extract_link(
+            line
+        )
+
+
+        if raw_url and line.strip() == raw_url:
+
+            close_numbered_list()
+
+            close_summary_list()
+
+
+            current_source_url = raw_url
+
 
             continue
 
@@ -989,29 +1165,36 @@ def build_html(briefing):
             re.IGNORECASE
         )
 
+
         if source_match:
 
             close_numbered_list()
 
-            current_source_name = source_match.group(1).strip()
+            close_summary_list()
 
-            # Sometimes Gemini may include the URL on the
-            # same Source line.
+
+            current_source_name = (
+                source_match.group(1).strip()
+            )
+
+
             same_line_url = extract_link(
                 current_source_name
             )
 
+
             if same_line_url:
 
-                current_source_url = same_line_url
+                current_source_url = (
+                    same_line_url
+                )
 
-            # Don't immediately create the box.
-            # We wait for Source URL.
+
             continue
 
 
         # ----------------------------------------------------
-        # OLD SOURCE LINK FORMAT
+        # OLD SOURCE LINK
         # ----------------------------------------------------
 
         if re.search(
@@ -1022,13 +1205,18 @@ def build_html(briefing):
 
             close_numbered_list()
 
+            close_summary_list()
+
+
             old_url = extract_link(
                 line
             )
 
+
             if old_url:
 
                 current_source_url = old_url
+
 
             continue
 
@@ -1043,11 +1231,16 @@ def build_html(briefing):
             re.IGNORECASE
         )
 
+
         if answer_match:
 
             close_numbered_list()
 
+            close_summary_list()
+
+
             value = answer_match.group(1).strip()
+
 
             output.append(
                 f"""
@@ -1063,6 +1256,7 @@ def build_html(briefing):
                 """
             )
 
+
             continue
 
 
@@ -1076,22 +1270,73 @@ def build_html(briefing):
             re.IGNORECASE
         )
 
+
         if explanation_match:
 
             close_numbered_list()
 
+            close_summary_list()
+
+
             value = explanation_match.group(1).strip()
+
 
             output.append(
                 f"""
                 <div class="explanation">
 
-                    <strong>Explanation:</strong>
+                    <strong>
+                        Explanation:
+                    </strong>
+
                     {clean_text(value)}
 
                 </div>
                 """
             )
+
+
+            continue
+
+
+        # ----------------------------------------------------
+        # SUMMARY BULLETS
+        # ----------------------------------------------------
+
+        bullet_match = re.match(
+            r"^[-*]\s+(.*)",
+            line
+        )
+
+
+        if bullet_match:
+
+            close_numbered_list()
+
+
+            if not in_summary_list:
+
+                output.append(
+                    '<ul class="summary-list">'
+                )
+
+                in_summary_list = True
+
+
+            value = bullet_match.group(1)
+
+
+            output.append(
+                f"""
+                <li>
+                    <span class="summary-icon">✓</span>
+                    <span>
+                        {clean_text(value)}
+                    </span>
+                </li>
+                """
+            )
+
 
             continue
 
@@ -1101,17 +1346,22 @@ def build_html(briefing):
         # ----------------------------------------------------
 
         option_match = re.match(
-            r"^([A-D])\)\s*(.*)",
+            r"^([A-D])[\)\.]\s*(.*)",
             line
         )
+
 
         if option_match:
 
             close_numbered_list()
 
+            close_summary_list()
+
+
             letter = option_match.group(1)
 
             value = option_match.group(2)
+
 
             output.append(
                 f"""
@@ -1129,6 +1379,7 @@ def build_html(briefing):
                 """
             )
 
+
             continue
 
 
@@ -1141,24 +1392,28 @@ def build_html(briefing):
             line
         )
 
+
         if numbered_match:
+
+            close_summary_list()
+
 
             number = numbered_match.group(1)
 
             value = numbered_match.group(2)
 
-            # If Gemini accidentally produces
-            # "4. Mains Angle", don't treat it as a fact.
 
             if re.match(
-                r"^(mains angle|source|source url|what happened|why it matters)",
+                r"^(mains angle|source|source url|what happened|why it matters|quick summary)",
                 value,
                 re.IGNORECASE
             ):
 
                 close_numbered_list()
 
+
                 heading = value
+
 
                 output.append(
                     f"""
@@ -1168,13 +1423,14 @@ def build_html(briefing):
                     """
                 )
 
+
                 continue
 
 
             if not in_numbered_list:
 
                 output.append(
-                    "<ol class=\"facts-list\">"
+                    '<ol class="facts-list">'
                 )
 
                 in_numbered_list = True
@@ -1188,6 +1444,7 @@ def build_html(briefing):
                 """
             )
 
+
             continue
 
 
@@ -1199,9 +1456,13 @@ def build_html(briefing):
 
             close_numbered_list()
 
+            close_summary_list()
+
+
             output.append(
                 "<hr>"
             )
+
 
             continue
 
@@ -1212,15 +1473,21 @@ def build_html(briefing):
 
         close_numbered_list()
 
+        close_summary_list()
+
+
         cleaned = remove_markdown_link(
             line
         )
 
+
         cleaned = cleaned.strip()
+
 
         if not cleaned:
 
             continue
+
 
         output.append(
             f"""
@@ -1231,17 +1498,20 @@ def build_html(briefing):
         )
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # FINAL CLEANUP
-    # --------------------------------------------------------
+    # ========================================================
 
     close_numbered_list()
+
+    close_summary_list()
 
     add_source_box()
 
     close_topic()
 
     close_special()
+
 
     return "\n".join(
         output
@@ -1524,6 +1794,57 @@ p {{
 strong {{
 
     color: #0f172a;
+}}
+
+
+/* ==========================================================
+   QUICK SUMMARY
+   ========================================================== */
+
+.summary-list {{
+
+    list-style: none;
+
+    margin:
+        8px 0 18px;
+
+    padding: 0;
+}}
+
+.summary-list li {{
+
+    display: flex;
+
+    align-items: flex-start;
+
+    gap: 9px;
+
+    margin-bottom: 9px;
+
+    padding:
+        10px 12px;
+
+    background: #f8fafc;
+
+    border-left:
+        3px solid #3b82f6;
+
+    border-radius: 7px;
+
+    color: #334155;
+
+    font-size: 14px;
+
+    line-height: 1.55;
+}}
+
+.summary-icon {{
+
+    flex-shrink: 0;
+
+    font-weight: 800;
+
+    color: #2563eb;
 }}
 
 
@@ -1935,6 +2256,11 @@ hr {{
             17px;
     }}
 
+    .summary-list li {{
+
+        font-size: 13px;
+    }}
+
     p {{
 
         font-size: 14px;
@@ -2023,9 +2349,11 @@ sender = os.environ[
     "GMAIL_USERNAME"
 ]
 
+
 app_password = os.environ[
     "GMAIL_APP_PASSWORD"
 ]
+
 
 recipient = sender
 
@@ -2034,16 +2362,20 @@ message = MIMEMultipart(
     "alternative"
 )
 
+
 message["Subject"] = (
     "UPSC Daily Current Affairs - AI Briefing"
 )
+
 
 message["From"] = sender
 
 message["To"] = recipient
 
 
+# ------------------------------------------------------------
 # Plain-text fallback
+# ------------------------------------------------------------
 
 message.attach(
 
@@ -2059,7 +2391,9 @@ message.attach(
 )
 
 
+# ------------------------------------------------------------
 # HTML email
+# ------------------------------------------------------------
 
 message.attach(
 
@@ -2103,9 +2437,11 @@ print(
     "\n===================================="
 )
 
+
 print(
     "EMAIL SENT SUCCESSFULLY"
 )
+
 
 print(
     "===================================="
