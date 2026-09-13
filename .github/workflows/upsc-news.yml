@@ -16,13 +16,13 @@ jobs:
           import os
           import json
           import urllib.request
+          import urllib.error
 
           api_key = os.environ["GEMINI_API_KEY"]
 
           url = (
               "https://generativelanguage.googleapis.com/v1beta/"
-              "models/gemini-2.5-flash:generateContent"
-              f"?key={api_key}"
+              "models/gemini-3.5-flash:generateContent"
           )
 
           data = {
@@ -40,12 +40,22 @@ jobs:
           request = urllib.request.Request(
               url,
               data=json.dumps(data).encode("utf-8"),
-              headers={"Content-Type": "application/json"},
+              headers={
+                  "Content-Type": "application/json",
+                  "x-goog-api-key": api_key
+              },
               method="POST"
           )
 
-          with urllib.request.urlopen(request) as response:
-              result = json.loads(response.read().decode("utf-8"))
+          try:
+              with urllib.request.urlopen(request) as response:
+                  result = json.loads(response.read().decode("utf-8"))
 
-          print(result["candidates"][0]["content"]["parts"][0]["text"])
+              print("Gemini response:")
+              print(result["candidates"][0]["content"]["parts"][0]["text"])
+
+          except urllib.error.HTTPError as e:
+              print(f"Gemini API returned HTTP {e.code}")
+              print(e.read().decode("utf-8"))
+              raise
           PY
