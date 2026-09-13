@@ -162,39 +162,86 @@ IMPORTANT ACCURACY RULES
 
 1. Do not invent facts.
 
-2. Do not claim that a government action, Supreme Court
-order, RBI decision, policy, scheme, statistic or
-international event happened unless the supplied article
-supports it.
+2. Use ONLY facts that are explicitly supported by the supplied
+news articles. Do not add facts from your general knowledge.
 
-3. Do not create statistics, dates, laws, schemes,
-organizations or statements that are not supported by
-the supplied material.
+3. Do not claim that a government action, Supreme Court order,
+RBI decision, policy, scheme, statistic or international event
+happened unless the supplied article supports it.
 
-4. If an important fact cannot be established from the
-supplied material, write:
-"Requires verification."
+4. Do not invent dates, numbers, statistics, names, locations,
+government departments, court orders, laws, schemes, reports,
+rankings, organizations or policy details.
 
-5. Do not confuse an article's opinion or criticism with
-an established government decision.
+5. If an important fact cannot be established from the supplied
+material, write "Requires verification." Do not guess.
 
-6. Do not present speculation as fact.
+6. Clearly distinguish between:
+   - what actually happened,
+   - what a person or organization said,
+   - what is proposed or expected,
+   - and what is analysis or opinion.
 
-7. Do not manufacture information just to fill a section.
+7. Never convert a proposal, recommendation, discussion, criticism,
+prediction or statement into a confirmed government decision or
+implemented policy.
 
-8. Use the supplied source URL exactly.
+8. For Supreme Court or other court-related news, do not invent
+case names, judgment details, constitutional provisions, legal
+principles or court directions unless supported by the article.
 
-9. Do not change, shorten or invent source URLs.
+9. For RBI, economy and government-policy news, do not invent
+percentages, dates, monetary values, policy changes, decisions or
+economic indicators.
 
-10. Prefer primary/official sources when the supplied
-article clearly identifies one.
+10. For international relations, do not assume that a meeting,
+agreement, treaty, conflict, visit or diplomatic decision occurred
+unless supported by the supplied article.
 
-11. If the supplied article is from a news organization,
-do not pretend that it is an official government source.
+11. For environment, climate, biodiversity and science topics, do not
+invent species, locations, measurements, scientific findings,
+project details, classifications or government actions.
 
-12. Make the content useful for UPSC preparation rather
-than general news reading.
+12. For UPSC Prelims Facts, include only facts directly supported by
+the supplied articles. If there are not enough verified facts,
+prefer simpler supported facts rather than guessing.
 
+13. For MCQs, every correct answer and explanation must be directly
+supported by the supplied current-affairs material or by a clearly
+stated concept contained in that material. Never create a question
+whose answer depends on an unsupported factual claim.
+
+14. For Quick Revision Points, include only information already
+established in the selected topics. Do not introduce new facts.
+
+15. For the Mains Angle and Mains Practice Question, base the issue
+on the supplied article. Do not introduce an unrelated factual claim.
+
+16. Do not confuse a news organization's reporting or opinion with
+an official government source. If an article reports what someone
+said, attribute it clearly.
+
+17. Use the supplied source URL exactly. Do not change, shorten,
+invent or replace the URL.
+
+18. If the supplied article is insufficient to establish a claim,
+say "Requires verification." rather than completing the claim from
+memory.
+
+19. Accuracy is more important than completeness. It is better to
+omit a detail than provide an uncertain or fabricated detail.
+
+20. Do not manufacture information merely to fill a required section.
+If a section cannot be supported, keep it concise and state
+"Requires verification." where appropriate.
+
+21. Select topics based on UPSC importance, not simply because an
+article is available.
+
+22. Before finalizing each topic, internally check every factual
+claim against the supplied article(s). Remove unsupported claims.
+
+============================================================
 ============================================================
 PRIORITIZE
 ============================================================
