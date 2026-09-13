@@ -13,5 +13,5 @@ jobs:
     steps:
       - name: Confirm scheduler
         run: |
-          echo "SCHEDULE TRIGGER WORKED - TEST 2"
+          echo "SCHEDULE TRIGGER WORKED - RESYNC"
           date -u
