@@ -576,6 +576,18 @@ supplied article text. Reject recycled/background/old-event stories.
 # 5. CALL GEMINI WITH RETRIES
 # ============================================================
 
+api_key = os.getenv("GEMINI_API_KEY")
+if not api_key:
+    raise RuntimeError("GEMINI_API_KEY is not configured in GitHub Secrets.")
+
+# Stable Gemini model used by this project.
+GEMINI_MODEL = "gemini-3.5-flash"
+gemini_url = (
+    f"https://generativelanguage.googleapis.com/v1beta/models/"
+    f"{GEMINI_MODEL}:generateContent"
+)
+
+
 # Gemini can occasionally return 503 Service Unavailable. Retry transient
 # failures instead of immediately failing the daily workflow.
 
