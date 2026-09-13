@@ -280,60 +280,546 @@ print(briefing)
 
 
 # ============================================================
-# 7. CREATE EMAIL
+# 7. CREATE BEAUTIFUL HTML EMAIL
 # ============================================================
 
-escaped_briefing = html.escape(briefing)
+from datetime import datetime
 
-email_content = escaped_briefing.replace(
-    "\n",
-    "<br>"
-)
+today = datetime.now().strftime("%d %B %Y")
+
+
+def inline_format(text):
+    text = html.escape(text)
+
+    # Remove escaped markdown characters
+    text = text.replace(r"\*", "*")
+    text = text.replace(r"\_", "_")
+
+    # Bold markdown
+    import re
+    text = re.sub(
+        r"\*\*(.*?)\*\*",
+        r"<strong>\1</strong>",
+        text
+    )
+
+    # Markdown links
+    text = re.sub(
+        r"\[(.*?)\]\\?\((https?://.*?)\)",
+        r'<a href="\2" target="_blank">\1</a>',
+        text
+    )
+
+    # Plain URLs
+    text = re.sub(
+        r'(?<!["=])(https?://[^\s<]+)',
+        r'<a href="\1" target="_blank">Read Source</a>',
+        text
+    )
+
+    return text
+
+
+def build_html(briefing):
+
+    lines = briefing.replace("\r", "").split("\n")
+
+    output = []
+
+    topic_open = False
+    list_open = False
+
+    for raw_line in lines:
+
+        line = raw_line.strip()
+
+        if not line:
+            if list_open:
+                output.append("</ol>")
+                list_open = False
+
+            continue
+
+        # -----------------------------------------
+        # TOPIC
+        # -----------------------------------------
+
+        if line.startswith("### TOPIC"):
+
+            if list_open:
+                output.append("</ol>")
+                list_open = False
+
+            if topic_open:
+                output.append("</div>")
+
+            topic_open = True
+
+            title = line.replace("### ", "")
+
+            output.append(f"""
+            <div class="topic-card">
+                <div class="topic-number">{html.escape(title)}</div>
+            """)
+
+            continue
+
+        # -----------------------------------------
+        # SECTION HEADINGS
+        # -----------------------------------------
+
+        if line.startswith("#### "):
+
+            if list_open:
+                output.append("</ol>")
+                list_open = False
+
+            heading = line.replace("#### ", "").strip()
+
+            output.append(
+                f'<div class="section-heading">{inline_format(heading)}</div>'
+            )
+
+            continue
+
+        # -----------------------------------------
+        # CATEGORY / SCORE / GS PAPER
+        # -----------------------------------------
+
+        if line.startswith("* **Category:**"):
+
+            value = line.split("**Category:**", 1)[1].strip()
+
+            output.append(
+                f'<div class="meta-row">'
+                f'<span class="badge category">🏷️ {inline_format(value)}</span>'
+                f'</div>'
+            )
+
+            continue
+
+        if line.startswith("* **UPSC Relevance Score:**"):
+
+            value = line.split(
+                "**UPSC Relevance Score:**",
+                1
+            )[1].strip()
+
+            output.append(
+                f'<span class="badge relevance">🎯 {inline_format(value)}</span>'
+            )
+
+            continue
+
+        if line.startswith("* **GS Paper:**"):
+
+            value = line.split(
+                "**GS Paper:**",
+                1
+            )[1].strip()
+
+            output.append(
+                f'<span class="badge gs">📚 {inline_format(value)}</span>'
+            )
+
+            continue
+
+        # -----------------------------------------
+        # SOURCE
+        # -----------------------------------------
+
+        if line.startswith("* **Source Link:**"):
+
+            value = line.split(
+                "**Source Link:**",
+                1
+            )[1].strip()
+
+            output.append(
+                f"""
+                <div class="source-box">
+                    🔗 <strong>Source:</strong>
+                    {inline_format(value)}
+                </div>
+                """
+            )
+
+            continue
+
+        if line.startswith("* **Article Title:**"):
+
+            value = line.split(
+                "**Article Title:**",
+                1
+            )[1].strip()
+
+            output.append(
+                f'<div class="article-title">📰 {inline_format(value)}</div>'
+            )
+
+            continue
+
+        # -----------------------------------------
+        # NUMBERED LISTS
+        # -----------------------------------------
+
+        import re
+
+        if re.match(r"^\d+\.", line):
+
+            if not list_open:
+                output.append("<ol>")
+                list_open = True
+
+            value = re.sub(
+                r"^\d+\.\s*",
+                "",
+                line
+            )
+
+            output.append(
+                f"<li>{inline_format(value)}</li>"
+            )
+
+            continue
+
+        # -----------------------------------------
+        # MCQ OPTIONS
+        # -----------------------------------------
+
+        if re.match(r"^[A-D]\)", line):
+
+            output.append(
+                f'<div class="option">{inline_format(line)}</div>'
+            )
+
+            continue
+
+        # -----------------------------------------
+        # QUICK REVISION / MCQ / MAINS HEADINGS
+        # -----------------------------------------
+
+        if line.startswith("### TOP 5 QUICK REVISION POINTS"):
+
+            if topic_open:
+                output.append("</div>")
+                topic_open = False
+
+            output.append("""
+            <div class="special-card revision-card">
+                <h2>⚡ Top 5 Quick Revision Points</h2>
+            """)
+
+            continue
+
+        if line.startswith("### PRELIMS MCQs"):
+
+            if topic_open:
+                output.append("</div>")
+                topic_open = False
+
+            output.append("""
+            <div class="special-card mcq-card">
+                <h2>❓ Prelims MCQs</h2>
+            """)
+
+            continue
+
+        if line.startswith("### MAINS PRACTICE QUESTION"):
+
+            if topic_open:
+                output.append("</div>")
+                topic_open = False
+
+            output.append("""
+            <div class="special-card mains-card">
+                <h2>✍️ Mains Practice</h2>
+            """)
+
+            continue
+
+        if line.startswith("#### MCQ"):
+
+            output.append(
+                f'<h3>{inline_format(line.replace("#### ", ""))}</h3>'
+            )
+
+            continue
+
+        # -----------------------------------------
+        # CORRECT ANSWER
+        # -----------------------------------------
+
+        if line.startswith("**Correct Answer:**"):
+
+            output.append(
+                f"""
+                <div class="answer">
+                    {inline_format(line)}
+                </div>
+                """
+            )
+
+            continue
+
+        # -----------------------------------------
+        # HORIZONTAL RULE
+        # -----------------------------------------
+
+        if line.startswith("---"):
+
+            output.append("<hr>")
+
+            continue
+
+        # -----------------------------------------
+        # NORMAL CONTENT
+        # -----------------------------------------
+
+        output.append(
+            f'<p>{inline_format(line)}</p>'
+        )
+
+    if list_open:
+        output.append("</ol>")
+
+    if topic_open:
+        output.append("</div>")
+
+    output.append("</div>")
+
+    return "\n".join(output)
+
+
+email_content = build_html(briefing)
+
 
 html_email = f"""
 <!DOCTYPE html>
-
 <html>
 
 <head>
 
 <meta charset="UTF-8">
 
+<meta name="viewport"
+      content="width=device-width, initial-scale=1.0">
+
+<title>UPSC Daily Current Affairs</title>
+
 <style>
 
 body {{
-    font-family: Arial, Helvetica, sans-serif;
-    line-height: 1.6;
-    background: #f5f5f5;
     margin: 0;
-    padding: 20px;
+    padding: 0;
+    background: #eef2f7;
+    font-family: Arial, Helvetica, sans-serif;
+    color: #1f2937;
 }}
 
 .container {{
-    max-width: 800px;
-    margin: auto;
-    background: white;
-    padding: 30px;
-    border-radius: 10px;
+    max-width: 760px;
+    margin: 30px auto;
+    background: #ffffff;
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 4px 18px rgba(0,0,0,0.08);
 }}
 
 .header {{
+    background: #172554;
+    color: white;
+    padding: 32px 25px;
     text-align: center;
-    padding-bottom: 20px;
-    border-bottom: 2px solid #eeeeee;
+}}
+
+.header h1 {{
+    margin: 0;
+    font-size: 28px;
+}}
+
+.header p {{
+    margin: 8px 0 0;
+    opacity: 0.85;
+}}
+
+.date {{
+    margin-top: 14px;
+    font-size: 13px;
+    opacity: 0.75;
 }}
 
 .content {{
-    margin-top: 25px;
+    padding: 25px;
+}}
+
+.topic-card {{
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    margin-bottom: 22px;
+    padding: 22px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}}
+
+.topic-number {{
+    font-size: 21px;
+    font-weight: bold;
+    color: #172554;
+    margin-bottom: 16px;
+}}
+
+.section-heading {{
+    margin-top: 20px;
+    margin-bottom: 8px;
+    font-weight: bold;
+    font-size: 14px;
+    color: #334155;
+    text-transform: uppercase;
+}}
+
+.meta-row {{
+    margin-bottom: 10px;
+}}
+
+.badge {{
+    display: inline-block;
+    padding: 6px 10px;
+    margin: 3px 5px 3px 0;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: bold;
+}}
+
+.category {{
+    background: #e0f2fe;
+    color: #075985;
+}}
+
+.relevance {{
+    background: #fef3c7;
+    color: #92400e;
+}}
+
+.gs {{
+    background: #ede9fe;
+    color: #5b21b6;
+}}
+
+p {{
     font-size: 15px;
+    line-height: 1.7;
+    margin: 8px 0;
+}}
+
+strong {{
+    color: #111827;
+}}
+
+ol {{
+    padding-left: 25px;
+}}
+
+li {{
+    margin-bottom: 10px;
+    line-height: 1.6;
+}}
+
+.source-box {{
+    margin-top: 18px;
+    padding: 12px;
+    background: #f8fafc;
+    border-radius: 8px;
+    font-size: 13px;
+}}
+
+.source-box a {{
+    color: #2563eb;
+    font-weight: bold;
+    text-decoration: none;
+}}
+
+.article-title {{
+    font-size: 13px;
+    color: #64748b;
+    margin-top: 10px;
+}}
+
+.option {{
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 7px;
+    padding: 9px 12px;
+    margin: 6px 0;
+}}
+
+.answer {{
+    margin-top: 12px;
+    padding: 11px;
+    background: #ecfdf5;
+    border-left: 4px solid #10b981;
+    border-radius: 6px;
+}}
+
+.special-card {{
+    margin-top: 25px;
+    padding: 22px;
+    border-radius: 12px;
+}}
+
+.special-card h2 {{
+    margin-top: 0;
+}}
+
+.revision-card {{
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+}}
+
+.mcq-card {{
+    background: #faf5ff;
+    border: 1px solid #ddd6fe;
+}}
+
+.mains-card {{
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+}}
+
+hr {{
+    border: 0;
+    border-top: 1px solid #e2e8f0;
+    margin: 20px 0;
 }}
 
 .footer {{
-    margin-top: 30px;
-    padding-top: 15px;
-    border-top: 1px solid #eeeeee;
-    color: #777777;
+    background: #f8fafc;
+    padding: 20px 25px;
+    text-align: center;
+    color: #64748b;
     font-size: 12px;
+    line-height: 1.6;
+}}
+
+@media only screen and (max-width: 600px) {{
+
+    .container {{
+        margin: 0;
+        border-radius: 0;
+    }}
+
+    .content {{
+        padding: 16px;
+    }}
+
+    .topic-card {{
+        padding: 17px;
+    }}
+
+    .header h1 {{
+        font-size: 23px;
+    }}
+
 }}
 
 </style>
@@ -344,30 +830,38 @@ body {{
 
 <div class="container">
 
-<div class="header">
+    <div class="header">
 
-<h1>UPSC Daily Current Affairs</h1>
+        <h1>🇮🇳 UPSC Daily Current Affairs</h1>
 
-<p>AI-generated daily briefing</p>
+        <p>AI-powered Civil Services Briefing</p>
 
-</div>
+        <div class="date">
+            {today}
+        </div>
 
-<div class="content">
+    </div>
 
-{email_content}
+    <div class="content">
 
-</div>
+        {email_content}
 
-<div class="footer">
+    </div>
 
-Generated automatically by the UPSC AI News Agent.
+    <div class="footer">
 
-<br>
+        <strong>UPSC AI News Agent</strong>
+        <br>
 
-Always verify important facts with authoritative
-sources before using them in an examination.
+        Generated automatically from current news.
 
-</div>
+        <br><br>
+
+        ⚠️ Always verify important facts with
+        authoritative sources before using them
+        in an examination.
+
+    </div>
 
 </div>
 
