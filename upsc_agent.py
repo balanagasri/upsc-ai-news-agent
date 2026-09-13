@@ -240,8 +240,12 @@ if not articles:
 # topic selection.
 articles = articles[:50]
 
+# Keep a larger deterministic pool locally, but send only a compact subset
+# to Gemini so the prompt stays comfortably below backend token limits.
+GEMINI_CANDIDATE_LIMIT = 15
+
 print(
-    f"Sending {len(articles)} recent candidates to Gemini for strict UPSC selection."
+    f"Keeping {len(articles)} recent candidates locally; sending {min(len(articles), GEMINI_CANDIDATE_LIMIT)} compact candidates to Gemini."
 )
 
 if not articles:
@@ -254,7 +258,7 @@ if not articles:
 
 news_text = ""
 
-for i, article in enumerate(articles[:20], 1):
+for i, article in enumerate(articles[:GEMINI_CANDIDATE_LIMIT], 1):
     news_text += (
         f"\nARTICLE {i}\n"
         f"TITLE: {article['title']}\n"
@@ -262,8 +266,8 @@ for i, article in enumerate(articles[:20], 1):
         f"RSS PUBLISHED AT (UTC): {article['published_at'].isoformat()}\n"
         f"PUBLISHER DATEPUBLISHED (UTC): "
         f"{article['page_published_at'].isoformat() if article['page_published_at'] else 'Not available'}\n"
-        f"DESCRIPTION: {article['description']}\n"
-        f"PUBLISHER ARTICLE TEXT: {article['page_text'][:4500]}\n"
+        f"DESCRIPTION: {article['description'][:700]}\n"
+        f"PUBLISHER ARTICLE TEXT: {article['page_text'][:1800]}\n"
         f"SOURCE URL: {article['link']}\n"
         f"--------------------------------------------------\n"
     )
@@ -654,7 +658,11 @@ request_body = {
         }
     ],
     "generationConfig": {
-        "temperature": 0.1
+        "responseMimeType": "text/plain",
+        "maxOutputTokens": 7000,
+        "thinkingConfig": {
+            "thinkingLevel": "minimal"
+        }
     }
 }
 
@@ -906,27 +914,34 @@ def resolve_google_news_links_in_text(text, articles):
 # 6. EXTRACT GEMINI RESPONSE
 # ============================================================
 
-try:
+def extract_gemini_text(response):
+    candidates = response.get("candidates") or []
+    if not candidates:
+        return ""
 
-    briefing = (
-        result["candidates"][0]
-        ["content"]["parts"][0]["text"]
+    candidate = candidates[0] or {}
+    content = candidate.get("content") or {}
+    parts = content.get("parts") or []
+
+    texts = []
+    for part in parts:
+        if isinstance(part, dict) and part.get("text"):
+            texts.append(part["text"])
+
+    return "\n".join(texts).strip()
+
+
+briefing = extract_gemini_text(result)
+
+if not briefing:
+    print("Gemini returned no usable text.")
+    print("finishReason:", (result.get("candidates") or [{}])[0].get("finishReason"))
+    print("usageMetadata:", json.dumps(result.get("usageMetadata", {}), indent=2))
+    print(json.dumps(result, indent=2)[:6000])
+    raise RuntimeError(
+        "Gemini returned an empty/malformed response. "
+        "The request was rejected before usable text was produced."
     )
-
-except Exception:
-
-    print(
-        "Unexpected Gemini response:"
-    )
-
-    print(
-        json.dumps(
-            result,
-            indent=2
-        )
-    )
-
-    raise
 
 
 # Replace Google News redirect links with direct publisher URLs where possible.
