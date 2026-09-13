@@ -11,23 +11,31 @@ import html
 from datetime import datetime, timezone, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.utils import parsedate_to_datetime
 
 
 # ============================================================
 # 1. FETCH NEWS
 # ============================================================
 
+# Google News freshness filter. Python also performs an independent
+# 48-hour check below, so old articles are rejected even if RSS returns them.
 queries = [
-    "India government policy",
-    "India economy RBI",
-    "Supreme Court India",
-    "India environment climate",
-    "India science technology",
-    "India international relations",
-    "India government schemes"
+    "India government policy when:2d",
+    "India economy RBI when:2d",
+    "Supreme Court India when:2d",
+    "India environment climate when:2d",
+    "India science technology when:2d",
+    "India international relations when:2d",
+    "India government schemes when:2d"
 ]
 
 articles = []
+
+# Independent freshness safeguard: only accept articles published
+# within the last 48 hours.
+NOW_UTC = datetime.now(timezone.utc)
+FRESHNESS_CUTOFF = NOW_UTC - timedelta(hours=48)
 
 
 for query in queries:
@@ -50,7 +58,7 @@ for query in queries:
 
         root = ET.fromstring(xml_data)
 
-        for item in root.findall(".//item")[:5]:
+        for item in root.findall(".//item")[:10]:
 
             title = item.findtext(
                 "title",
@@ -67,6 +75,41 @@ for query in queries:
                 ""
             )
 
+            pub_date_text = item.findtext(
+                "pubDate",
+                ""
+            )
+
+            # Google News normally provides an RFC-822/RFC-2822 date.
+            # If it cannot be parsed, skip the article instead of
+            # risking an old article entering the briefing.
+            try:
+                published_at = parsedate_to_datetime(
+                    pub_date_text
+                )
+
+                if published_at.tzinfo is None:
+                    published_at = published_at.replace(
+                        tzinfo=timezone.utc
+                    )
+
+                published_at = published_at.astimezone(
+                    timezone.utc
+                )
+
+            except Exception:
+                print(
+                    f"Skipping article with invalid publication date: {title}"
+                )
+                continue
+
+            if published_at < FRESHNESS_CUTOFF:
+                print(
+                    f"Skipping old article: {title} "
+                    f"({published_at.isoformat()})"
+                )
+                continue
+
             source_element = item.find("source")
 
             if source_element is not None:
@@ -79,7 +122,8 @@ for query in queries:
                     "title": title,
                     "link": link,
                     "description": description,
-                    "source": source_name
+                    "source": source_name,
+                    "published_at": published_at
                 }
             )
 
@@ -91,8 +135,13 @@ for query in queries:
 
 
 # ============================================================
-# 2. REMOVE DUPLICATES
+# 2. SORT NEWEST FIRST + REMOVE DUPLICATES
 # ============================================================
+
+articles.sort(
+    key=lambda article: article["published_at"],
+    reverse=True
+)
 
 unique_articles = {}
 
@@ -112,7 +161,7 @@ articles = list(
 
 
 print(
-    f"Collected {len(articles)} unique articles."
+    f"Collected {len(articles)} fresh unique articles from the last 48 hours."
 )
 
 
@@ -139,6 +188,7 @@ for i, article in enumerate(
         f"\nARTICLE {i}\n"
         f"TITLE: {article['title']}\n"
         f"SOURCE NAME: {article['source']}\n"
+        f"PUBLISHED AT (UTC): {article['published_at'].isoformat()}\n"
         f"DESCRIPTION: {article['description']}\n"
         f"SOURCE URL: {article['link']}\n"
         f"--------------------------------------------------\n"
@@ -165,84 +215,90 @@ IMPORTANT ACCURACY RULES
 2. Use ONLY facts that are explicitly supported by the supplied
 news articles. Do not add facts from your general knowledge.
 
-3. Do not claim that a government action, Supreme Court order,
+3. The supplied articles have already passed a 48-hour publication
+freshness check. Treat the supplied publication timestamp as the
+article publication time, not automatically as the event date.
+
+4. If an event happened earlier but is newly reported, clearly
+distinguish the event date from the publication date when supported.
+
+5. Do not claim that a government action, Supreme Court order,
 RBI decision, policy, scheme, statistic or international event
 happened unless the supplied article supports it.
 
-4. Do not invent dates, numbers, statistics, names, locations,
+6. Do not invent dates, numbers, statistics, names, locations,
 government departments, court orders, laws, schemes, reports,
 rankings, organizations or policy details.
 
-5. If an important fact cannot be established from the supplied
+7. If an important fact cannot be established from the supplied
 material, write "Requires verification." Do not guess.
 
-6. Clearly distinguish between:
+8. Clearly distinguish between:
    - what actually happened,
    - what a person or organization said,
    - what is proposed or expected,
    - and what is analysis or opinion.
 
-7. Never convert a proposal, recommendation, discussion, criticism,
+9. Never convert a proposal, recommendation, discussion, criticism,
 prediction or statement into a confirmed government decision or
 implemented policy.
 
-8. For Supreme Court or other court-related news, do not invent
+10. For Supreme Court or other court-related news, do not invent
 case names, judgment details, constitutional provisions, legal
 principles or court directions unless supported by the article.
 
-9. For RBI, economy and government-policy news, do not invent
+11. For RBI, economy and government-policy news, do not invent
 percentages, dates, monetary values, policy changes, decisions or
 economic indicators.
 
-10. For international relations, do not assume that a meeting,
+12. For international relations, do not assume that a meeting,
 agreement, treaty, conflict, visit or diplomatic decision occurred
 unless supported by the supplied article.
 
-11. For environment, climate, biodiversity and science topics, do not
+13. For environment, climate, biodiversity and science topics, do not
 invent species, locations, measurements, scientific findings,
 project details, classifications or government actions.
 
-12. For UPSC Prelims Facts, include only facts directly supported by
+14. For UPSC Prelims Facts, include only facts directly supported by
 the supplied articles. If there are not enough verified facts,
 prefer simpler supported facts rather than guessing.
 
-13. For MCQs, every correct answer and explanation must be directly
+15. For MCQs, every correct answer and explanation must be directly
 supported by the supplied current-affairs material or by a clearly
 stated concept contained in that material. Never create a question
 whose answer depends on an unsupported factual claim.
 
-14. For Quick Revision Points, include only information already
+16. For Quick Revision Points, include only information already
 established in the selected topics. Do not introduce new facts.
 
-15. For the Mains Angle and Mains Practice Question, base the issue
+17. For the Mains Angle and Mains Practice Question, base the issue
 on the supplied article. Do not introduce an unrelated factual claim.
 
-16. Do not confuse a news organization's reporting or opinion with
+18. Do not confuse a news organization's reporting or opinion with
 an official government source. If an article reports what someone
 said, attribute it clearly.
 
-17. Use the supplied source URL exactly. Do not change, shorten,
+19. Use the supplied source URL exactly. Do not change, shorten,
 invent or replace the URL.
 
-18. If the supplied article is insufficient to establish a claim,
+20. If the supplied article is insufficient to establish a claim,
 say "Requires verification." rather than completing the claim from
 memory.
 
-19. Accuracy is more important than completeness. It is better to
+21. Accuracy is more important than completeness. It is better to
 omit a detail than provide an uncertain or fabricated detail.
 
-20. Do not manufacture information merely to fill a required section.
+22. Do not manufacture information merely to fill a required section.
 If a section cannot be supported, keep it concise and state
 "Requires verification." where appropriate.
 
-21. Select topics based on UPSC importance, not simply because an
+23. Select topics based on UPSC importance, not simply because an
 article is available.
 
-22. Before finalizing each topic, internally check every factual
+24. Before finalizing each topic, internally check every factual
 claim against the supplied article(s). Remove unsupported claims.
 
-============================================================
-============================================================
+========================================================================================================================
 PRIORITIZE
 ============================================================
 
@@ -402,6 +458,9 @@ Write only the question.
 ============================================================
 NEWS ARTICLES
 ============================================================
+
+The articles below have already been filtered to the last 48 hours
+and sorted from newest to oldest. Use only the supplied evidence.
 
 {news_text}
 """
