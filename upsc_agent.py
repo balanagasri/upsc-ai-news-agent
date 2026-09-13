@@ -230,146 +230,21 @@ if not articles:
 
 
 # ============================================================
-# 3. GEMINI FRESHNESS / EVENT-DATE SCREENING
+# 3. REDUCE CANDIDATES BEFORE GEMINI
 # ============================================================
 
-api_key = os.environ["GEMINI_API_KEY"]
-
-gemini_url = (
-    "https://generativelanguage.googleapis.com/v1beta/"
-    "models/gemini-3.5-flash:generateContent"
-)
-
-
-def call_gemini(text, timeout=120):
-    request_body = {
-        "contents": [{"parts": [{"text": text}]}],
-        "generationConfig": {
-            "temperature": 0.1
-        }
-    }
-
-    request = urllib.request.Request(
-        gemini_url,
-        data=json.dumps(request_body).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "x-goog-api-key": api_key
-        },
-        method="POST"
-    )
-
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        result = json.loads(response.read().decode("utf-8"))
-
-    return result["candidates"][0]["content"]["parts"][0]["text"]
-
-
-screening_articles = articles[:40]
-
-screening_text = ""
-
-for i, article in enumerate(screening_articles, 1):
-    screening_text += (
-        f"\nARTICLE {i}\n"
-        f"TITLE: {article['title']}\n"
-        f"SOURCE: {article['source']}\n"
-        f"RSS PUBLISHED AT UTC: {article['published_at'].isoformat()}\n"
-        f"PUBLISHER DATEPUBLISHED UTC: "
-        f"{article['page_published_at'].isoformat() if article['page_published_at'] else 'Not available'}\n"
-        f"RSS DESCRIPTION: {article['description'][:1800]}\n"
-        f"PUBLISHER TEXT: {article['page_text'][:3500]}\n"
-        f"SOURCE URL: {article['link']}\n"
-        f"--------------------------------------------------\n"
-    )
-
-screening_prompt = f"""
-You are the strict freshness gate for a UPSC current-affairs system.
-
-CURRENT UTC TIME: {NOW_UTC.isoformat()}
-CURRENT DATE IN INDIA (IST): {datetime.now(timezone(timedelta(hours=5, minutes=30))).date().isoformat()}
-
-The candidates below were surfaced by Google News recently, but a recent
-publication timestamp alone is NOT sufficient.
-
-For each article, decide whether the underlying NEWS DEVELOPMENT itself is
-recent enough for a daily current-affairs briefing.
-
-ACCEPT only when there is credible evidence in the supplied text that:
-- a new event, decision, announcement, judgment, report, discovery, meeting,
-  policy action, scheme launch, diplomatic development, economic decision or
-  other substantive development occurred within the last 48 hours; OR
-- the article clearly reports a continuing development that materially changed
-  within the last 48 hours.
-
-REJECT when:
-- the article is merely about an event that happened weeks/months/years ago;
-- an old announcement is being republished without a genuinely new development;
-- it is a background/explainer/history article;
-- it is an old court case or old policy being discussed again without a new order;
-- the supplied text does not provide enough evidence that the underlying event
-  is recent;
-- the article appears to be a duplicate/rewrite of an older development.
-
-DO NOT infer a recent event from a recent publication timestamp.
-DO NOT use outside knowledge.
-When uncertain, REJECT.
-
-Return ONLY a JSON array. No markdown.
-Each item must be:
-{{"article": 1, "keep": true, "reason": "short evidence-based reason"}}
-
-{screening_text}
-"""
-
-try:
-    screening_response = call_gemini(screening_prompt, timeout=120)
-
-    cleaned_screening = screening_response.strip()
-    cleaned_screening = re.sub(r"^```(?:json)?\s*", "", cleaned_screening, flags=re.IGNORECASE)
-    cleaned_screening = re.sub(r"\s*```$", "", cleaned_screening)
-
-    decisions = json.loads(cleaned_screening)
-
-    keep_indexes = set()
-
-    for decision in decisions:
-        try:
-            article_number = int(decision.get("article", 0))
-            keep = bool(decision.get("keep", False))
-            reason = str(decision.get("reason", "")).strip()
-
-            if 1 <= article_number <= len(screening_articles):
-                title = screening_articles[article_number - 1]["title"]
-                if keep:
-                    keep_indexes.add(article_number - 1)
-                    print(f"KEEP current development: {title} | {reason}")
-                else:
-                    print(f"REJECT old/uncertain development: {title} | {reason}")
-        except Exception:
-            continue
-
-    articles = [
-        article
-        for index, article in enumerate(screening_articles)
-        if index in keep_indexes
-    ]
-
-except Exception as e:
-    # Fail closed: if the freshness gate cannot run, do NOT send potentially
-    # stale current-affairs material.
-    print(f"Freshness screening failed: {e}")
-    raise Exception("Freshness screening could not be completed; email not sent.")
-
+# The RSS and publisher publication-date checks above are deterministic.
+# Keep a manageable number of the newest candidates for the single Gemini
+# call below. Gemini will perform the final EVENT freshness check as part of
+# topic selection.
+articles = articles[:50]
 
 print(
-    f"Freshness gate kept {len(articles)} genuinely recent candidates."
+    f"Sending {len(articles)} recent candidates to Gemini for strict UPSC selection."
 )
 
 if not articles:
-    raise Exception(
-        "No genuinely recent current-affairs developments passed the freshness gate."
-    )
+    raise Exception("No recent news candidates remain.")
 
 
 # ============================================================
@@ -530,6 +405,33 @@ IGNORE
 - Sensational stories with little UPSC relevance
 
 ============================================================
+STRICT CURRENT-AFFAIRS SELECTION
+============================================================
+
+The candidate articles were published recently, but some may discuss older
+events. This is the most important selection rule.
+
+For every candidate, inspect the title, RSS description, and publisher text.
+Select it ONLY if the supplied evidence indicates that the underlying
+development itself occurred, changed, was announced, decided, reported, or
+materially advanced within the last 48 hours.
+
+REJECT a candidate if it is:
+- a newly published article about an old event;
+- a background or explainer article;
+- an old scheme/policy/court matter being discussed again without a new action;
+- a retrospective, anniversary, profile, opinion, or analysis without a new
+  substantive development;
+- a story whose event date cannot be established from the supplied evidence;
+- a duplicate/rewrite that adds no new development.
+
+When uncertain, REJECT it. Do not use outside knowledge to make an old event
+look current. Do not invent an event date.
+
+If the article reports a continuing story, keep it only when the supplied text
+shows a substantive development within the last 48 hours.
+
+============================================================
 NUMBER OF TOPICS
 ============================================================
 
@@ -657,89 +559,103 @@ Write only the question.
 NEWS ARTICLES
 ============================================================
 
-The articles below have already been filtered to the last 48 hours
-and sorted from newest to oldest. Use only the supplied evidence.
+The articles below passed a deterministic publication-date freshness check:
+- Google News search used when:1d.
+- RSS publication timestamp is within the last 36 hours.
+- When available, publisher datePublished is also within the last 36 hours.
+
+IMPORTANT: A recent publication date does NOT prove that the underlying
+event is recent. You must independently judge event freshness from the
+supplied article text. Reject recycled/background/old-event stories.
 
 {news_text}
 """
 
 
 # ============================================================
-# 5. CALL GEMINI
+# 5. CALL GEMINI WITH RETRIES
 # ============================================================
 
-api_key = os.environ["GEMINI_API_KEY"]
+# Gemini can occasionally return 503 Service Unavailable. Retry transient
+# failures instead of immediately failing the daily workflow.
 
+def call_gemini_with_retry(request, attempts=4, timeout=120):
 
-gemini_url = (
-    "https://generativelanguage.googleapis.com/v1beta/"
-    "models/gemini-3.5-flash:generateContent"
-)
+    delays = [5, 15, 30, 60]
+
+    for attempt in range(attempts):
+
+        try:
+            with urllib.request.urlopen(
+                request,
+                timeout=timeout
+            ) as response:
+                return json.loads(
+                    response.read().decode("utf-8")
+                )
+
+        except urllib.error.HTTPError as e:
+
+            error_body = e.read().decode("utf-8", errors="ignore")
+
+            print(
+                f"Gemini API HTTP {e.code} on attempt "
+                f"{attempt + 1}/{attempts}."
+            )
+
+            if e.code in (429, 500, 502, 503, 504) and attempt < attempts - 1:
+                import time
+                delay = delays[attempt]
+                print(f"Transient Gemini error. Retrying in {delay} seconds...")
+                time.sleep(delay)
+                continue
+
+            print(error_body[:2000])
+            raise
+
+        except (urllib.error.URLError, TimeoutError) as e:
+
+            print(
+                f"Gemini connection error on attempt "
+                f"{attempt + 1}/{attempts}: {e}"
+            )
+
+            if attempt < attempts - 1:
+                import time
+                delay = delays[attempt]
+                print(f"Transient connection error. Retrying in {delay} seconds...")
+                time.sleep(delay)
+                continue
+
+            raise
 
 
 request_body = {
-
     "contents": [
-
         {
             "parts": [
-
                 {
                     "text": prompt
                 }
-
             ]
         }
-
-    ]
-
+    ],
+    "generationConfig": {
+        "temperature": 0.1
+    }
 }
 
-
 request = urllib.request.Request(
-
     gemini_url,
-
-    data=json.dumps(
-        request_body
-    ).encode("utf-8"),
-
+    data=json.dumps(request_body).encode("utf-8"),
     headers={
         "Content-Type": "application/json",
         "x-goog-api-key": api_key
     },
-
     method="POST"
 )
 
-
-try:
-
-    with urllib.request.urlopen(
-        request,
-        timeout=120
-    ) as response:
-
-        result = json.loads(
-            response.read().decode(
-                "utf-8"
-            )
-        )
-
-
-except urllib.error.HTTPError as e:
-
-    print(
-        f"Gemini API returned HTTP {e.code}"
-    )
-
-    print(
-        e.read().decode(
-            "utf-8"
-        )
-    )
-
-    raise
+result = call_gemini_with_retry(request)
 
 
 # ============================================================
