@@ -1,11 +1,10 @@
 name: UPSC AI News Agent
 
 on:
-  workflow_dispatch:
-
   schedule:
-    # TEST: 12:30 PM IST = 7:00 AM UTC
-    - cron: "0 7 * * *"
+    - cron: "*/5 * * * *"
+
+  workflow_dispatch:
 
 jobs:
   fetch-analyze-email:
