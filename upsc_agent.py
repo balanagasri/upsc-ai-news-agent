@@ -18,24 +18,113 @@ from email.utils import parsedate_to_datetime
 # 1. FETCH NEWS
 # ============================================================
 
-# Google News freshness filter. Python also performs an independent
-# 48-hour check below, so old articles are rejected even if RSS returns them.
+# This version uses THREE freshness safeguards:
+# 1) Google News query freshness (when:1d / when:2d)
+# 2) RSS publication timestamp check
+# 3) A Gemini screening step that rejects articles whose underlying
+#    event/development is clearly old or merely a background/repost story.
+
 queries = [
-    "India government policy when:2d",
-    "India economy RBI when:2d",
-    "Supreme Court India when:2d",
-    "India environment climate when:2d",
-    "India science technology when:2d",
-    "India international relations when:2d",
-    "India government schemes when:2d"
+    "India government policy when:1d",
+    "India economy RBI when:1d",
+    "Supreme Court India when:1d",
+    "India environment climate when:1d",
+    "India science technology when:1d",
+    "India international relations when:1d",
+    "India government schemes when:1d",
+    "India polity governance when:1d",
+    "India agriculture when:1d",
+    "India internal security when:1d"
 ]
 
 articles = []
 
-# Independent freshness safeguard: only accept articles published
-# within the last 48 hours.
+# Keep the window deliberately tight. The final screening step is even stricter.
 NOW_UTC = datetime.now(timezone.utc)
-FRESHNESS_CUTOFF = NOW_UTC - timedelta(hours=48)
+FRESHNESS_CUTOFF = NOW_UTC - timedelta(hours=36)
+
+
+def strip_html(text):
+    """Turn RSS HTML into readable plain text."""
+    if not text:
+        return ""
+
+    text = html.unescape(text)
+    text = re.sub(r"(?is)<script.*?>.*?</script>", " ", text)
+    text = re.sub(r"(?is)<style.*?>.*?</style>", " ", text)
+    text = re.sub(r"(?is)<[^>]+>", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def fetch_article_page(url):
+    """Best-effort extraction of publisher page text and publication date.
+
+    This is deliberately non-fatal: some publishers block automated requests.
+    In that case RSS data is still available and Gemini screening remains active.
+    """
+    if not url:
+        return "", None
+
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 Chrome/131 Safari/537.36"
+            ),
+            "Accept-Language": "en-IN,en;q=0.9"
+        }
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=12) as response:
+            raw = response.read(500000).decode("utf-8", errors="ignore")
+
+        # Prefer an explicit article publication date. Never use dateModified
+        # as proof that an old article is new.
+        published_candidates = []
+
+        patterns = [
+            r'"datePublished"\s*:\s*"([^"]+)"',
+            r'"datePublished"\s*:\s*\{[^}]*"@value"\s*:\s*"([^"]+)"',
+            r'<meta[^>]+property=["\']article:published_time["\'][^>]+content=["\']([^"\']+)',
+            r'<meta[^>]+name=["\']date["\'][^>]+content=["\']([^"\']+)'
+        ]
+
+        for pattern in patterns:
+            published_candidates.extend(re.findall(pattern, raw, re.IGNORECASE))
+
+        page_published_at = None
+
+        for candidate in published_candidates:
+            candidate = html.unescape(candidate).strip()
+            try:
+                parsed = datetime.fromisoformat(candidate.replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                page_published_at = parsed.astimezone(timezone.utc)
+                break
+            except Exception:
+                try:
+                    parsed = parsedate_to_datetime(candidate)
+                    if parsed.tzinfo is None:
+                        parsed = parsed.replace(tzinfo=timezone.utc)
+                    page_published_at = parsed.astimezone(timezone.utc)
+                    break
+                except Exception:
+                    continue
+
+        text = strip_html(raw)
+
+        # Keep enough article text for event-date screening without making the
+        # final Gemini prompt unnecessarily huge.
+        text = text[:5000]
+        return text, page_published_at
+
+    except Exception as e:
+        print(f"Could not fetch publisher page: {e}")
+        return "", None
 
 
 for query in queries:
@@ -48,74 +137,55 @@ for query in queries:
     )
 
     try:
-
-        with urllib.request.urlopen(
-            rss_url,
-            timeout=20
-        ) as response:
-
+        with urllib.request.urlopen(rss_url, timeout=20) as response:
             xml_data = response.read()
 
         root = ET.fromstring(xml_data)
 
-        for item in root.findall(".//item")[:10]:
+        for item in root.findall(".//item")[:12]:
 
-            title = item.findtext(
-                "title",
-                ""
-            )
+            title = item.findtext("title", "").strip()
+            link = item.findtext("link", "").strip()
+            description = strip_html(item.findtext("description", ""))
+            pub_date_text = item.findtext("pubDate", "")
 
-            link = item.findtext(
-                "link",
-                ""
-            )
+            if not title or not link or not pub_date_text:
+                continue
 
-            description = item.findtext(
-                "description",
-                ""
-            )
-
-            pub_date_text = item.findtext(
-                "pubDate",
-                ""
-            )
-
-            # Google News normally provides an RFC-822/RFC-2822 date.
-            # If it cannot be parsed, skip the article instead of
-            # risking an old article entering the briefing.
             try:
-                published_at = parsedate_to_datetime(
-                    pub_date_text
-                )
-
+                published_at = parsedate_to_datetime(pub_date_text)
                 if published_at.tzinfo is None:
-                    published_at = published_at.replace(
-                        tzinfo=timezone.utc
-                    )
-
-                published_at = published_at.astimezone(
-                    timezone.utc
-                )
-
+                    published_at = published_at.replace(tzinfo=timezone.utc)
+                published_at = published_at.astimezone(timezone.utc)
             except Exception:
-                print(
-                    f"Skipping article with invalid publication date: {title}"
-                )
+                print(f"Skipping article with invalid publication date: {title}")
                 continue
 
             if published_at < FRESHNESS_CUTOFF:
                 print(
-                    f"Skipping old article: {title} "
+                    f"Skipping old RSS article: {title} "
                     f"({published_at.isoformat()})"
                 )
                 continue
 
             source_element = item.find("source")
+            source_name = (
+                source_element.text.strip()
+                if source_element is not None and source_element.text
+                else ""
+            )
 
-            if source_element is not None:
-                source_name = source_element.text or ""
-            else:
-                source_name = ""
+            # Fetch the publisher page where possible. If its explicit
+            # datePublished is old, reject the item even if Google News
+            # recently surfaced it.
+            page_text, page_published_at = fetch_article_page(link)
+
+            if page_published_at is not None and page_published_at < FRESHNESS_CUTOFF:
+                print(
+                    f"Skipping old publisher article: {title} "
+                    f"(datePublished={page_published_at.isoformat()})"
+                )
+                continue
 
             articles.append(
                 {
@@ -123,19 +193,18 @@ for query in queries:
                     "link": link,
                     "description": description,
                     "source": source_name,
-                    "published_at": published_at
+                    "published_at": published_at,
+                    "page_published_at": page_published_at,
+                    "page_text": page_text
                 }
             )
 
     except Exception as e:
-
-        print(
-            f"Could not fetch '{query}': {e}"
-        )
+        print(f"Could not fetch '{query}': {e}")
 
 
 # ============================================================
-# 2. SORT NEWEST FIRST + REMOVE DUPLICATES
+# 2. SORT + REMOVE DUPLICATES
 # ============================================================
 
 articles.sort(
@@ -145,51 +214,180 @@ articles.sort(
 
 unique_articles = {}
 
-
 for article in articles:
+    title_key = re.sub(r"[^a-z0-9]+", " ", article["title"].lower()).strip()
+    if title_key and title_key not in unique_articles:
+        unique_articles[title_key] = article
 
-    title = article["title"].strip()
+articles = list(unique_articles.values())
 
-    if title:
-
-        unique_articles[title] = article
-
-
-articles = list(
-    unique_articles.values()
+print(
+    f"Collected {len(articles)} fresh candidate articles from the last 36 hours."
 )
+
+if not articles:
+    raise Exception("No recent news articles were collected.")
+
+
+# ============================================================
+# 3. GEMINI FRESHNESS / EVENT-DATE SCREENING
+# ============================================================
+
+api_key = os.environ["GEMINI_API_KEY"]
+
+gemini_url = (
+    "https://generativelanguage.googleapis.com/v1beta/"
+    "models/gemini-3.5-flash:generateContent"
+)
+
+
+def call_gemini(text, timeout=120):
+    request_body = {
+        "contents": [{"parts": [{"text": text}]}],
+        "generationConfig": {
+            "temperature": 0.1
+        }
+    }
+
+    request = urllib.request.Request(
+        gemini_url,
+        data=json.dumps(request_body).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "x-goog-api-key": api_key
+        },
+        method="POST"
+    )
+
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        result = json.loads(response.read().decode("utf-8"))
+
+    return result["candidates"][0]["content"]["parts"][0]["text"]
+
+
+screening_articles = articles[:40]
+
+screening_text = ""
+
+for i, article in enumerate(screening_articles, 1):
+    screening_text += (
+        f"\nARTICLE {i}\n"
+        f"TITLE: {article['title']}\n"
+        f"SOURCE: {article['source']}\n"
+        f"RSS PUBLISHED AT UTC: {article['published_at'].isoformat()}\n"
+        f"PUBLISHER DATEPUBLISHED UTC: "
+        f"{article['page_published_at'].isoformat() if article['page_published_at'] else 'Not available'}\n"
+        f"RSS DESCRIPTION: {article['description'][:1800]}\n"
+        f"PUBLISHER TEXT: {article['page_text'][:3500]}\n"
+        f"SOURCE URL: {article['link']}\n"
+        f"--------------------------------------------------\n"
+    )
+
+screening_prompt = f"""
+You are the strict freshness gate for a UPSC current-affairs system.
+
+CURRENT UTC TIME: {NOW_UTC.isoformat()}
+CURRENT DATE IN INDIA (IST): {datetime.now(timezone(timedelta(hours=5, minutes=30))).date().isoformat()}
+
+The candidates below were surfaced by Google News recently, but a recent
+publication timestamp alone is NOT sufficient.
+
+For each article, decide whether the underlying NEWS DEVELOPMENT itself is
+recent enough for a daily current-affairs briefing.
+
+ACCEPT only when there is credible evidence in the supplied text that:
+- a new event, decision, announcement, judgment, report, discovery, meeting,
+  policy action, scheme launch, diplomatic development, economic decision or
+  other substantive development occurred within the last 48 hours; OR
+- the article clearly reports a continuing development that materially changed
+  within the last 48 hours.
+
+REJECT when:
+- the article is merely about an event that happened weeks/months/years ago;
+- an old announcement is being republished without a genuinely new development;
+- it is a background/explainer/history article;
+- it is an old court case or old policy being discussed again without a new order;
+- the supplied text does not provide enough evidence that the underlying event
+  is recent;
+- the article appears to be a duplicate/rewrite of an older development.
+
+DO NOT infer a recent event from a recent publication timestamp.
+DO NOT use outside knowledge.
+When uncertain, REJECT.
+
+Return ONLY a JSON array. No markdown.
+Each item must be:
+{{"article": 1, "keep": true, "reason": "short evidence-based reason"}}
+
+{screening_text}
+"""
+
+try:
+    screening_response = call_gemini(screening_prompt, timeout=120)
+
+    cleaned_screening = screening_response.strip()
+    cleaned_screening = re.sub(r"^```(?:json)?\s*", "", cleaned_screening, flags=re.IGNORECASE)
+    cleaned_screening = re.sub(r"\s*```$", "", cleaned_screening)
+
+    decisions = json.loads(cleaned_screening)
+
+    keep_indexes = set()
+
+    for decision in decisions:
+        try:
+            article_number = int(decision.get("article", 0))
+            keep = bool(decision.get("keep", False))
+            reason = str(decision.get("reason", "")).strip()
+
+            if 1 <= article_number <= len(screening_articles):
+                title = screening_articles[article_number - 1]["title"]
+                if keep:
+                    keep_indexes.add(article_number - 1)
+                    print(f"KEEP current development: {title} | {reason}")
+                else:
+                    print(f"REJECT old/uncertain development: {title} | {reason}")
+        except Exception:
+            continue
+
+    articles = [
+        article
+        for index, article in enumerate(screening_articles)
+        if index in keep_indexes
+    ]
+
+except Exception as e:
+    # Fail closed: if the freshness gate cannot run, do NOT send potentially
+    # stale current-affairs material.
+    print(f"Freshness screening failed: {e}")
+    raise Exception("Freshness screening could not be completed; email not sent.")
 
 
 print(
-    f"Collected {len(articles)} fresh unique articles from the last 48 hours."
+    f"Freshness gate kept {len(articles)} genuinely recent candidates."
 )
 
-
 if not articles:
-
     raise Exception(
-        "No news articles were collected."
+        "No genuinely recent current-affairs developments passed the freshness gate."
     )
 
 
 # ============================================================
-# 3. PREPARE NEWS FOR GEMINI
+# 4. PREPARE NEWS FOR FINAL GEMINI BRIEFING
 # ============================================================
 
 news_text = ""
 
-
-for i, article in enumerate(
-    articles[:30],
-    1
-):
-
+for i, article in enumerate(articles[:20], 1):
     news_text += (
         f"\nARTICLE {i}\n"
         f"TITLE: {article['title']}\n"
         f"SOURCE NAME: {article['source']}\n"
-        f"PUBLISHED AT (UTC): {article['published_at'].isoformat()}\n"
+        f"RSS PUBLISHED AT (UTC): {article['published_at'].isoformat()}\n"
+        f"PUBLISHER DATEPUBLISHED (UTC): "
+        f"{article['page_published_at'].isoformat() if article['page_published_at'] else 'Not available'}\n"
         f"DESCRIPTION: {article['description']}\n"
+        f"PUBLISHER ARTICLE TEXT: {article['page_text'][:4500]}\n"
         f"SOURCE URL: {article['link']}\n"
         f"--------------------------------------------------\n"
     )
