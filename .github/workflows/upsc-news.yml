@@ -1,0 +1,51 @@
+name: UPSC AI News Agent
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-gemini:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Test Gemini API
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          python - <<'PY'
+          import os
+          import json
+          import urllib.request
+
+          api_key = os.environ["GEMINI_API_KEY"]
+
+          url = (
+              "https://generativelanguage.googleapis.com/v1beta/"
+              "models/gemini-2.5-flash:generateContent"
+              f"?key={api_key}"
+          )
+
+          data = {
+              "contents": [
+                  {
+                      "parts": [
+                          {
+                              "text": "Say hello to the UPSC AI News Agent in one sentence."
+                          }
+                      ]
+                  }
+              ]
+          }
+
+          request = urllib.request.Request(
+              url,
+              data=json.dumps(data).encode("utf-8"),
+              headers={"Content-Type": "application/json"},
+              method="POST"
+          )
+
+          with urllib.request.urlopen(request) as response:
+              result = json.loads(response.read().decode("utf-8"))
+
+          print(result["candidates"][0]["content"]["parts"][0]["text"])
+          PY
