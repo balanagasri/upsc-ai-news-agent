@@ -1,9 +1,6 @@
 name: UPSC AI News Agent
 
 on:
-  schedule:
-    - cron: "*/5 * * * *"
-
   workflow_dispatch:
 
 jobs:
