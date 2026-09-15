@@ -58,6 +58,283 @@ def strip_html(text):
     return text.strip()
 
 
+# ============================================================
+# GOOGLE NEWS URL RESOLVER
+# ============================================================
+
+def _try_decode_legacy_google_news_url(article_id):
+    """Decode older Google News RSS article IDs when they contain
+    the original URL directly."""
+    try:
+        padded = article_id + ("=" * (-len(article_id) % 4))
+        raw = base64.urlsafe_b64decode(padded)
+        if raw.startswith(b"\x08\x13\x22"):
+            raw = raw[3:]
+
+        if raw.endswith(b"\xd2\x01\x00"):
+            raw = raw[:-3]
+
+        if not raw:
+            return ""
+
+        first = raw[0]
+        if first < 0x80:
+            length = first
+            start = 1
+        elif len(raw) >= 2:
+            length = (first & 0x7F) | (raw[1] << 7)
+            start = 2
+        else:
+            return ""
+
+        candidate = raw[start:start + length].decode("utf-8", errors="ignore").strip()
+
+        if candidate.startswith(("http://", "https://")):
+            return candidate
+
+    except Exception:
+        pass
+
+    return ""
+
+
+def resolve_google_news_url(url):
+    """Resolve a Google News RSS article URL to the publisher URL.
+
+    Google News RSS now commonly returns signed intermediate URLs rather
+    than direct publisher links. We first try the older embedded-URL
+    format, then Google's current garturl/batchexecute endpoint.
+    If resolution fails, the original URL is returned so the newsletter
+    can still be sent.
+    """
+    try:
+        parsed = urllib.parse.urlparse(url)
+
+        if parsed.hostname not in {"news.google.com", "www.news.google.com"}:
+            return url
+
+        parts = [part for part in parsed.path.split("/") if part]
+        if "articles" not in parts:
+            return url
+
+        article_id = parts[-1]
+
+        legacy = _try_decode_legacy_google_news_url(article_id)
+        if legacy and "news.google.com" not in urllib.parse.urlparse(legacy).netloc:
+            return legacy
+
+        # Current Google News resolver endpoint.
+        payload_string = (
+            '[[["Fbv4je","[\\\"garturlreq\\\",'
+            '[[\\\"en-US\\\",\\\"IN\\\",'
+            '[\\\"FINANCE_TOP_INDICES\\\",\\\"WEB_TEST_1_0_0\\\"],'
+            'null,null,1,1,\\\"IN:en\\\",null,180,null,null,null,null,'
+            'null,0,null,null,[1608992183,723341000]],'
+            '\\\"en-US\\\",\\\"IN\\\",1,[2,3,4,8],1,0,\\\"655000234\\\",'
+            '0,0,null,0],\\\"'
+            + article_id
+            + '\\\"]",null,"generic"]]]'
+        )
+
+        body = "f.req=" + urllib.parse.quote(payload_string, safe="")
+        request = urllib.request.Request(
+            "https://news.google.com/_/DotsSplashUi/data/batchexecute?rpcids=Fbv4je",
+            data=body.encode("utf-8"),
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
+                "Referer": "https://news.google.com/",
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 Chrome/131 Safari/537.36"
+                ),
+            },
+            method="POST",
+        )
+
+        with urllib.request.urlopen(request, timeout=15) as response:
+            response_text = response.read().decode("utf-8", errors="ignore")
+
+        marker = '[\\"garturlres\\",\\"'
+        if marker in response_text:
+            start = response_text.index(marker) + len(marker)
+            remainder = response_text[start:]
+            end_marker = '\\",'
+            if end_marker in remainder:
+                resolved = remainder.split(end_marker, 1)[0]
+                resolved = resolved.replace("\\/", "/").replace('\\"', '"')
+
+                if resolved.startswith(("http://", "https://")):
+                    host = urllib.parse.urlparse(resolved).hostname or ""
+                    if host not in {"news.google.com", "www.news.google.com"}:
+                        return resolved
+
+    except Exception as e:
+        print(f"Could not resolve Google News URL: {e}")
+
+    return url
+
+
+def resolve_google_news_url_with_browser(url):
+    """Fallback resolver for Google News URLs that the HTTP decoder cannot resolve."""
+    try:
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(
+                locale="en-IN",
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/131.0.0.0 Safari/537.36"
+                ),
+            )
+            page = context.new_page()
+            page.goto(url, wait_until="domcontentloaded", timeout=20000)
+            page.wait_for_timeout(2500)
+            final_url = page.url
+            context.close()
+            browser.close()
+
+        parsed = urllib.parse.urlparse(final_url)
+        host = parsed.hostname or ""
+        if (
+            final_url.startswith(("http://", "https://"))
+            and host not in {"news.google.com", "www.news.google.com"}
+            and "google.com" not in host
+        ):
+            return final_url
+
+    except Exception as e:
+        print(f"Browser fallback could not resolve Google News URL: {e}")
+
+    return ""
+
+
+def make_google_search_url(title, source):
+    """Always-valid fallback when a direct publisher URL cannot be recovered."""
+    query = f'"{title}" {source}'.strip()
+    return "https://www.google.com/search?q=" + urllib.parse.quote_plus(query)
+
+
+def resolve_google_news_links_in_text(text, articles):
+    """Replace Google News RSS links with direct publisher URLs.
+
+    HTTP decoding is tried first. Only links that remain unresolved use
+    Playwright. If even the browser cannot resolve one, use a valid Google
+    Search URL instead of sending a broken Google News redirect URL.
+    """
+    pattern = re.compile(
+        r"https://news\.google\.com/(?:rss/)?articles/[A-Za-z0-9_-]+(?:\?[^\s)\]>]+)?"
+    )
+
+    # Match article metadata even when Gemini slightly changes the URL
+    # (for example by adding/removing a query string).
+    article_map = {}
+    for article in articles:
+        link = article.get("link", "")
+        if link:
+            normalized = urllib.parse.urlunparse(
+                urllib.parse.urlparse(link)._replace(query="", fragment="")
+            )
+            article_map[normalized] = article
+
+    cache = {}
+
+    def replace(match):
+        original = match.group(0)
+        if original not in cache:
+            resolved = resolve_google_news_url(original)
+
+            if resolved == original or not resolved:
+                print("Trying browser fallback for Google News URL...")
+                resolved = resolve_google_news_url_with_browser(original)
+
+            if not resolved:
+                normalized_original = urllib.parse.urlunparse(
+                    urllib.parse.urlparse(original)._replace(query="", fragment="")
+                )
+                article = article_map.get(normalized_original)
+
+                # If exact matching still fails, match the Google News article
+                # ID. This handles minor URL formatting differences.
+                if not article:
+                    original_id = urllib.parse.urlparse(original).path.rstrip("/").split("/")[-1]
+                    for candidate in articles:
+                        candidate_link = candidate.get("link", "")
+                        candidate_id = urllib.parse.urlparse(candidate_link).path.rstrip("/").split("/")[-1]
+                        if original_id and original_id == candidate_id:
+                            article = candidate
+                            break
+
+                if article:
+                    resolved = make_google_search_url(
+                        article.get("title", "UPSC current affairs"),
+                        article.get("source", "News"),
+                    )
+                else:
+                    # Last-resort fallback. This is still a valid Google URL,
+                    # but it searches for the actual article identifier rather
+                    # than searching for the entire Google News URL.
+                    article_id = urllib.parse.urlparse(original).path.rstrip("/").split("/")[-1]
+                    resolved = "https://www.google.com/search?q=" + urllib.parse.quote_plus(article_id)
+
+                print("Using safe Google Search fallback for one unresolved source URL.")
+
+            cache[original] = resolved
+
+        return cache[original]
+
+    return pattern.sub(replace, text)
+
+def extract_article_text(raw):
+    """Extract real article text before falling back to page boilerplate."""
+    if not raw:
+        return ""
+
+    # Prefer JSON-LD articleBody when the publisher exposes it.
+    bodies = []
+    for match in re.finditer(
+        r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+        raw,
+        re.IGNORECASE | re.DOTALL,
+    ):
+        block = html.unescape(match.group(1)).strip()
+        try:
+            data = json.loads(block)
+        except Exception:
+            continue
+
+        stack = [data]
+        while stack:
+            value = stack.pop()
+            if isinstance(value, dict):
+                article_body = value.get("articleBody")
+                if isinstance(article_body, str) and len(article_body.strip()) >= 200:
+                    bodies.append(article_body)
+                stack.extend(value.values())
+            elif isinstance(value, list):
+                stack.extend(value)
+
+    if bodies:
+        best = max(bodies, key=len)
+        return re.sub(r"\s+", " ", html.unescape(best)).strip()[:5000]
+
+    # Prefer semantic <article> markup.
+    article_match = re.search(
+        r"<article\b[^>]*>(.*?)</article>",
+        raw,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if article_match:
+        article_text = strip_html(article_match.group(1))
+        if len(article_text) >= 300:
+            return article_text[:5000]
+
+    # Last resort: stripped page text.
+    return strip_html(raw)[:5000]
+
+
 def fetch_article_page(url):
     """Best-effort extraction of publisher page text and publication date.
 
@@ -116,7 +393,7 @@ def fetch_article_page(url):
                 except Exception:
                     continue
 
-        text = strip_html(raw)
+        text = extract_article_text(raw)
 
         # Keep enough article text for event-date screening without making the
         # final Gemini prompt unnecessarily huge.
@@ -176,10 +453,33 @@ for query in queries:
                 else ""
             )
 
-            # Fetch the publisher page where possible. If its explicit
-            # datePublished is old, reject the item even if Google News
-            # recently surfaced it.
-            page_text, page_published_at = fetch_article_page(link)
+            # Google News RSS often provides a signed Google News URL instead
+            # of the publisher URL. Resolve it BEFORE fetching article content.
+            publisher_link = resolve_google_news_url(link)
+
+            if (
+                publisher_link == link
+                and urllib.parse.urlparse(link).hostname in {
+                    "news.google.com",
+                    "www.news.google.com",
+                }
+            ):
+                print("HTTP resolver did not resolve article; trying browser fallback...")
+                browser_link = resolve_google_news_url_with_browser(link)
+                if browser_link:
+                    publisher_link = browser_link
+
+            if publisher_link != link:
+                print(f"Resolved publisher URL: {publisher_link}")
+
+            # Fetch the actual publisher page. If its explicit datePublished is
+            # old, reject the item even if Google News recently surfaced it.
+            page_text, page_published_at = fetch_article_page(publisher_link)
+
+            # If publisher extraction fails, retain only the RSS description as
+            # a source-backed fallback. Never send Google HTML boilerplate to Gemini.
+            if not page_text:
+                page_text = description[:1800]
 
             if page_published_at is not None and page_published_at < FRESHNESS_CUTOFF:
                 print(
@@ -191,7 +491,7 @@ for query in queries:
             articles.append(
                 {
                     "title": title,
-                    "link": link,
+                    "link": publisher_link,
                     "description": description,
                     "source": source_name,
                     "published_at": published_at,
@@ -293,7 +593,7 @@ IMPORTANT ACCURACY RULES
 2. Use ONLY facts that are explicitly supported by the supplied
 news articles. Do not add facts from your general knowledge.
 
-3. The supplied articles have already passed a 48-hour publication
+3. The supplied articles have already passed a 36-hour publication
 freshness check. Treat the supplied publication timestamp as the
 article publication time, not automatically as the event date.
 
@@ -363,10 +663,19 @@ invent or replace the URL.
 say "Requires verification." rather than completing the claim from
 memory.
 
-21. Accuracy is more important than completeness. It is better to
+21. If publisher article text is unavailable or contains only JavaScript,
+navigation, consent, or boilerplate, treat the RSS description as the
+maximum available evidence. Do not reconstruct the missing article from
+general knowledge.
+
+22. Never add generic facts merely to fill Prelims Facts, MCQs, Quick
+Revision, or Mains sections. Every factual statement must be traceable
+to the selected article evidence.
+
+23. Accuracy is more important than completeness. It is better to
 omit a detail than provide an uncertain or fabricated detail.
 
-22. Do not manufacture information merely to fill a required section.
+24. Do not manufacture information merely to fill a required section.
 If a section cannot be supported, keep it concise and state
 "Requires verification." where appropriate.
 
@@ -419,7 +728,7 @@ events. This is the most important selection rule.
 For every candidate, inspect the title, RSS description, and publisher text.
 Select it ONLY if the supplied evidence indicates that the underlying
 development itself occurred, changed, was announced, decided, reported, or
-materially advanced within the last 48 hours.
+materially advanced within the last 36 hours.
 
 REJECT a candidate if it is:
 - a newly published article about an old event;
@@ -434,7 +743,7 @@ When uncertain, REJECT it. Do not use outside knowledge to make an old event
 look current. Do not invent an event date.
 
 If the article reports a continuing story, keep it only when the supplied text
-shows a substantive development within the last 48 hours.
+shows a substantive development within the last 36 hours.
 
 ============================================================
 NUMBER OF TOPICS
@@ -681,236 +990,6 @@ result = call_gemini_with_retry(request)
 
 
 # ============================================================
-# GOOGLE NEWS URL RESOLVER
-# ============================================================
-
-def _try_decode_legacy_google_news_url(article_id):
-    """Decode older Google News RSS article IDs when they contain
-    the original URL directly."""
-    try:
-        padded = article_id + ("=" * (-len(article_id) % 4))
-        raw = base64.urlsafe_b64decode(padded)
-        if raw.startswith(b"\x08\x13\x22"):
-            raw = raw[3:]
-
-        if raw.endswith(b"\xd2\x01\x00"):
-            raw = raw[:-3]
-
-        if not raw:
-            return ""
-
-        first = raw[0]
-        if first < 0x80:
-            length = first
-            start = 1
-        elif len(raw) >= 2:
-            length = (first & 0x7F) | (raw[1] << 7)
-            start = 2
-        else:
-            return ""
-
-        candidate = raw[start:start + length].decode("utf-8", errors="ignore").strip()
-
-        if candidate.startswith(("http://", "https://")):
-            return candidate
-
-    except Exception:
-        pass
-
-    return ""
-
-
-def resolve_google_news_url(url):
-    """Resolve a Google News RSS article URL to the publisher URL.
-
-    Google News RSS now commonly returns signed intermediate URLs rather
-    than direct publisher links. We first try the older embedded-URL
-    format, then Google's current garturl/batchexecute endpoint.
-    If resolution fails, the original URL is returned so the newsletter
-    can still be sent.
-    """
-    try:
-        parsed = urllib.parse.urlparse(url)
-
-        if parsed.hostname not in {"news.google.com", "www.news.google.com"}:
-            return url
-
-        parts = [part for part in parsed.path.split("/") if part]
-        if "articles" not in parts:
-            return url
-
-        article_id = parts[-1]
-
-        legacy = _try_decode_legacy_google_news_url(article_id)
-        if legacy and "news.google.com" not in urllib.parse.urlparse(legacy).netloc:
-            return legacy
-
-        # Current Google News resolver endpoint.
-        payload_string = (
-            '[[["Fbv4je","[\\\"garturlreq\\\",'
-            '[[\\\"en-US\\\",\\\"IN\\\",'
-            '[\\\"FINANCE_TOP_INDICES\\\",\\\"WEB_TEST_1_0_0\\\"],'
-            'null,null,1,1,\\\"IN:en\\\",null,180,null,null,null,null,'
-            'null,0,null,null,[1608992183,723341000]],'
-            '\\\"en-US\\\",\\\"IN\\\",1,[2,3,4,8],1,0,\\\"655000234\\\",'
-            '0,0,null,0],\\\"'
-            + article_id
-            + '\\\"]",null,"generic"]]]'
-        )
-
-        body = "f.req=" + urllib.parse.quote(payload_string, safe="")
-        request = urllib.request.Request(
-            "https://news.google.com/_/DotsSplashUi/data/batchexecute?rpcids=Fbv4je",
-            data=body.encode("utf-8"),
-            headers={
-                "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
-                "Referer": "https://news.google.com/",
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 Chrome/131 Safari/537.36"
-                ),
-            },
-            method="POST",
-        )
-
-        with urllib.request.urlopen(request, timeout=15) as response:
-            response_text = response.read().decode("utf-8", errors="ignore")
-
-        marker = '[\\"garturlres\\",\\"'
-        if marker in response_text:
-            start = response_text.index(marker) + len(marker)
-            remainder = response_text[start:]
-            end_marker = '\\",'
-            if end_marker in remainder:
-                resolved = remainder.split(end_marker, 1)[0]
-                resolved = resolved.replace("\\/", "/").replace('\\"', '"')
-
-                if resolved.startswith(("http://", "https://")):
-                    host = urllib.parse.urlparse(resolved).hostname or ""
-                    if host not in {"news.google.com", "www.news.google.com"}:
-                        return resolved
-
-    except Exception as e:
-        print(f"Could not resolve Google News URL: {e}")
-
-    return url
-
-
-def resolve_google_news_url_with_browser(url):
-    """Fallback resolver for Google News URLs that the HTTP decoder cannot resolve."""
-    try:
-        from playwright.sync_api import sync_playwright
-
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            context = browser.new_context(
-                locale="en-IN",
-                user_agent=(
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/131.0.0.0 Safari/537.36"
-                ),
-            )
-            page = context.new_page()
-            page.goto(url, wait_until="domcontentloaded", timeout=20000)
-            page.wait_for_timeout(2500)
-            final_url = page.url
-            context.close()
-            browser.close()
-
-        parsed = urllib.parse.urlparse(final_url)
-        host = parsed.hostname or ""
-        if (
-            final_url.startswith(("http://", "https://"))
-            and host not in {"news.google.com", "www.news.google.com"}
-            and "google.com" not in host
-        ):
-            return final_url
-
-    except Exception as e:
-        print(f"Browser fallback could not resolve Google News URL: {e}")
-
-    return ""
-
-
-def make_google_search_url(title, source):
-    """Always-valid fallback when a direct publisher URL cannot be recovered."""
-    query = f'"{title}" {source}'.strip()
-    return "https://www.google.com/search?q=" + urllib.parse.quote_plus(query)
-
-
-def resolve_google_news_links_in_text(text, articles):
-    """Replace Google News RSS links with direct publisher URLs.
-
-    HTTP decoding is tried first. Only links that remain unresolved use
-    Playwright. If even the browser cannot resolve one, use a valid Google
-    Search URL instead of sending a broken Google News redirect URL.
-    """
-    pattern = re.compile(
-        r"https://news\.google\.com/(?:rss/)?articles/[A-Za-z0-9_-]+(?:\?[^\s)\]>]+)?"
-    )
-
-    # Match article metadata even when Gemini slightly changes the URL
-    # (for example by adding/removing a query string).
-    article_map = {}
-    for article in articles:
-        link = article.get("link", "")
-        if link:
-            normalized = urllib.parse.urlunparse(
-                urllib.parse.urlparse(link)._replace(query="", fragment="")
-            )
-            article_map[normalized] = article
-
-    cache = {}
-
-    def replace(match):
-        original = match.group(0)
-        if original not in cache:
-            resolved = resolve_google_news_url(original)
-
-            if resolved == original or not resolved:
-                print("Trying browser fallback for Google News URL...")
-                resolved = resolve_google_news_url_with_browser(original)
-
-            if not resolved:
-                normalized_original = urllib.parse.urlunparse(
-                    urllib.parse.urlparse(original)._replace(query="", fragment="")
-                )
-                article = article_map.get(normalized_original)
-
-                # If exact matching still fails, match the Google News article
-                # ID. This handles minor URL formatting differences.
-                if not article:
-                    original_id = urllib.parse.urlparse(original).path.rstrip("/").split("/")[-1]
-                    for candidate in articles:
-                        candidate_link = candidate.get("link", "")
-                        candidate_id = urllib.parse.urlparse(candidate_link).path.rstrip("/").split("/")[-1]
-                        if original_id and original_id == candidate_id:
-                            article = candidate
-                            break
-
-                if article:
-                    resolved = make_google_search_url(
-                        article.get("title", "UPSC current affairs"),
-                        article.get("source", "News"),
-                    )
-                else:
-                    # Last-resort fallback. This is still a valid Google URL,
-                    # but it searches for the actual article identifier rather
-                    # than searching for the entire Google News URL.
-                    article_id = urllib.parse.urlparse(original).path.rstrip("/").split("/")[-1]
-                    resolved = "https://www.google.com/search?q=" + urllib.parse.quote_plus(article_id)
-
-                print("Using safe Google Search fallback for one unresolved source URL.")
-
-            cache[original] = resolved
-
-        return cache[original]
-
-    return pattern.sub(replace, text)
-
-
-# ============================================================
 # 6. EXTRACT GEMINI RESPONSE
 # ============================================================
 
@@ -944,9 +1023,8 @@ if not briefing:
     )
 
 
-# Replace Google News redirect links with direct publisher URLs where possible.
-# This happens after Gemini selection, so only the few final article links need
-# to be resolved.
+# Final safety pass: replace any remaining Google News redirect links with
+# direct publisher URLs where possible.
 briefing = resolve_google_news_links_in_text(briefing, articles)
 
 
